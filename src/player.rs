@@ -10,7 +10,7 @@ pub struct Player;
 pub fn move_players(
     time: Res<Time>,
     actions: Res<ActionState<Action>>,
-    mut players: Query<&mut Motion, With<Player>>,
+    mut players: Query<&mut particle::Motion, With<Player>>,
 ) {
     const MOVE_SPEED: f32 = 300.;
 

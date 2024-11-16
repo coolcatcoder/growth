@@ -17,7 +17,7 @@ use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 mod collision;
 mod events;
 mod ground;
-mod particles;
+pub mod particle;
 mod plant;
 mod player;
 mod sun;
@@ -27,8 +27,8 @@ mod tree;
 mod prelude {
     pub use super::{squared, Action, Grower};
     pub use crate::{
-        collision::prelude::*, ground::prelude::*, particles::prelude::*, player::prelude::*,
-        sun::prelude::*, time::prelude::*, tree::prelude::*,
+        collision::prelude::*, ground::prelude::*, particle, player::prelude::*, sun::prelude::*,
+        time::prelude::*, tree::prelude::*,
     };
     pub use bevy::{
         ecs::{
@@ -42,7 +42,7 @@ mod prelude {
     pub use rayon::prelude::*;
     pub use std::time::Duration;
 }
-use particles::DisableMotionOnCollision;
+use particle::DisableMotionOnCollision;
 use prelude::*;
 
 // The world is dying. Save it. The sun will eventually hit the world. Hope they realise that sooner rather than later!
@@ -77,10 +77,15 @@ fn main() {
                 Leaf::grower,
                 Sun::update,
                 (
-                    tick_particles,
-                    ((disable_motion_on_collide, step_up).chain_ignore_deferred()),
-                    particle_motion,
-                    finish_running_particles,
+                    particle::Ticker::update_time,
+                    ((
+                        particle::DisableMotionOnCollision::system,
+                        particle::StepUp::system,
+                        particle::AmbientFriction::system,
+                    )
+                        .chain_ignore_deferred()),
+                    particle::Motion::system,
+                    particle::Ticker::finish,
                 )
                     .chain_ignore_deferred(),
             ),
@@ -106,15 +111,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    //Ground::create(0, Vec2::new(-500., 0.), &mut commands, &asset_server);
-
     let mut rng = thread_rng();
-
-    const MIN_TRANSLATION: Vec2 = Vec2::new(25., -30.);
-    const MAX_TRANSLATION: Vec2 = Vec2::new(30., 30.);
-
-    const MIN_OFFSET: Vec2 = Vec2::new(-5., -5.);
-    const MAX_OFFSET: Vec2 = Vec2::new(5., 5.);
 
     let mut player_translation = Vec2::ZERO;
     let mut previous_translation = Vec2::new(0.0, 0.0);
@@ -155,48 +152,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         }
     }
 
-    // // Rubble
-    // let mut previous_translation = Vec2::new(-27530., 0.);
-    // for i in 0..2000 {
-    //     if i == 1000 {
-    //         camera_translation = previous_translation;
-    //     }
-
-    //     let mut downward_translation = previous_translation;
-
-    //     for i in 0..150 {
-    //         let mut rock = create_rubble(Vec2::new(downward_translation.x + rng.gen_range(MIN_OFFSET.x..MAX_OFFSET.x),downward_translation.y + rng.gen_range(MIN_OFFSET.y..MAX_OFFSET.y)), &mut commands, &asset_server);
-
-    //         // 2, set to 5 for optimisation fun
-    //         if i <= 2 {
-    //             rock.insert(Collider::radius(15.));
-    //         }
-
-    //         downward_translation.y -= 30.;
-    //     }
-
-    //     previous_translation.x += rng.gen_range(MIN_TRANSLATION.x..MAX_TRANSLATION.x);
-    //     previous_translation.y += rng.gen_range(MIN_TRANSLATION.y..MAX_TRANSLATION.y);
-    // }
-
-    // for _ in 0..500 {
-    //     Sun::create(
-    //         1.,
-    //         Vec2::new(
-    //             rng.gen_range(0.0..previous_translation.x),
-    //             rng.gen_range(1000.0..5000.0),
-    //         ),
-    //         &mut commands,
-    //         &asset_server,
-    //     );
-    // }
-
-    // plant::Boulder::create(
-    //     Vec2::new(camera_translation.x, camera_translation.y + 30. + 15.),
-    //     &mut commands,
-    //     &asset_server,
-    // );
-
     info!("player {}", player_translation);
 
     commands.spawn((
@@ -214,12 +169,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             )),
             ..default()
         },
-        ParticleTicker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
-        Motion::new(Vec2::new(0., -5.), [true, true]),
-        DisableMotionOnCollision,
+        particle::Ticker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
+        particle::Motion::new(Vec2::new(0., -5.), [true, true]),
+        particle::DisableMotionOnCollision,
         Collider { radius: 15. },
-        StepUp(60.),
-        AirFriction::new(Vec2::splat(0.05)),
+        particle::StepUp(60.),
+        particle::AmbientFriction(Vec2::splat(0.05)),
     ));
 
     commands.spawn(Camera2dBundle { ..default() });
