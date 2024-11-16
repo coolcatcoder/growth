@@ -7,10 +7,9 @@
 // Sometimes crimes.
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::cast_possible_truncation)]
+#![allow(incomplete_features)]
 // Unstable features:
 #![feature(generic_const_exprs)]
-
-use std::array;
 
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 
@@ -37,12 +36,12 @@ mod prelude {
         },
         prelude::*,
     };
+    pub use derive_more::{Deref, DerefMut};
     pub use leafwing_input_manager::prelude::*;
     pub use rand::prelude::*;
     pub use rayon::prelude::*;
     pub use std::time::Duration;
 }
-use particle::DisableMotionOnCollision;
 use prelude::*;
 
 // The world is dying. Save it. The sun will eventually hit the world. Hope they realise that sooner rather than later!
@@ -78,13 +77,13 @@ fn main() {
                 Sun::update,
                 (
                     particle::Ticker::update_time,
-                    ((
-                        particle::DisableMotionOnCollision::system,
-                        particle::StepUp::system,
-                        particle::AmbientFriction::system,
-                    )
-                        .chain_ignore_deferred()),
+                    particle::AmbientFriction::motion,
+                    particle::AmbientFriction::velocity,
+                    particle::StopOnCollision::motion,
+                    particle::StopOnCollision::velocity,
+                    particle::StepUp::motion,
                     particle::Motion::system,
+                    particle::Velocity::system,
                     particle::Ticker::finish,
                 )
                     .chain_ignore_deferred(),
@@ -170,11 +169,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
         particle::Ticker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
-        particle::Motion::new(Vec2::new(0., -5.), [true, true]),
-        particle::DisableMotionOnCollision,
+        particle::Velocity(Vec2::new(0., -5.)),
+        particle::StopOnCollision,
         Collider { radius: 15. },
         particle::StepUp(60.),
-        //particle::AmbientFriction(Vec2::splat(0.05)),
+        particle::AmbientFriction(Vec2::splat(0.02)),
     ));
 
     commands.spawn(Camera2dBundle { ..default() });

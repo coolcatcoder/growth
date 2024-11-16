@@ -10,19 +10,16 @@ pub struct Player;
 pub fn move_players(
     time: Res<Time>,
     actions: Res<ActionState<Action>>,
-    mut players: Query<&mut particle::Motion, With<Player>>,
+    mut players: Query<&mut particle::Velocity, With<Player>>,
 ) {
-    const MOVE_SPEED: f32 = 300.;
+    const MOVE_SPEED: f32 = 50.;
 
-    players.iter_mut().for_each(|mut motion| {
+    players.iter_mut().for_each(|mut velocity| {
         let movement =
             actions.clamped_axis_pair(&Action::Move).xy() * MOVE_SPEED * time.delta_seconds();
 
-        motion.amount = movement;
-
-        if motion.amount.y == 0. {
-            motion.amount.y -= 5.
-        };
+        **velocity += movement;
+        velocity.y -= 0.5;
 
         //info!("{}", motion.amount);
     });

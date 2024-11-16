@@ -469,6 +469,8 @@ pub fn collide(
                 return;
             };
 
+            warn_once!("We don't call clear on the collisions??");
+
             collider_grid.cells[index]
                 .0
                 .iter()

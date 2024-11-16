@@ -1,7 +1,4 @@
-use bevy::{
-    ecs::schedule::ScheduleLabel,
-    utils::{HashMap, HashSet},
-};
+use bevy::{ecs::schedule::ScheduleLabel, utils::HashMap};
 
 pub use crate::prelude::*;
 
@@ -127,12 +124,4 @@ fn run_run_every_schedule(world: &mut World) {
                 }
             });
     });
-}
-
-//MARK: Alternative
-// somehow write a system config, likely as a closure, to have a local every to run the system. Idk.
-macro_rules! run_every {
-    ($every: expr, $systems: expr) => {
-        || {}
-    };
 }
