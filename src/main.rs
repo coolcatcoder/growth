@@ -96,6 +96,7 @@ fn main() {
         .add_systems_that_run_every(
             Duration::from_secs_f64(1. / 30.),
             (
+                orb_follow,
                 plant::Boulder::absorb_sun,
                 (ColliderGrid::update, collide).chain(),
             ),
@@ -153,30 +154,55 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     info!("player {}", player_translation);
 
-    commands.spawn((
-        Player,
-        SpriteBundle {
-            texture: asset_server.load("nodule.png"),
-            sprite: Sprite {
-                color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
+    let player = commands
+        .spawn((
+            Player,
+            SpriteBundle {
+                texture: asset_server.load("nodule.png"),
+                sprite: Sprite {
+                    color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
+                    ..default()
+                },
+                transform: Transform::from_translation(Vec3::new(
+                    player_translation.x,
+                    player_translation.y + 90.,
+                    1.,
+                )),
                 ..default()
             },
-            transform: Transform::from_translation(Vec3::new(
-                player_translation.x,
-                player_translation.y + 90.,
-                1.,
-            )),
-            ..default()
-        },
-        particle::Ticker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
-        particle::Velocity(Vec2::new(0., -5.)),
-        particle::StopOnCollision,
-        Collider { radius: 15. },
-        particle::StepUp(60.),
-        particle::AmbientFriction(Vec2::splat(0.02)),
-    ));
+            particle::Ticker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
+            particle::Velocity(Vec2::new(0., -5.)),
+            particle::StopOnCollision,
+            Collider { radius: 15. },
+            particle::StepUp(60.),
+            particle::AmbientFriction(Vec2::splat(0.02)),
+        ))
+        .id();
 
     commands.spawn(Camera2dBundle { ..default() });
+
+    for i in 1..=10 {
+        commands.spawn((
+            AbilityOrb {
+                following: Some(player),
+                distance: 60. * i as f32,
+            },
+            SpriteBundle {
+                texture: asset_server.load("nodule.png"),
+                sprite: Sprite {
+                    color: Color::Srgba(Srgba::rgb(1.0, 1.0, 0.0)),
+                    custom_size: Some(Vec2::splat(15.)),
+                    ..default()
+                },
+                transform: Transform::from_translation(Vec3::new(
+                    player_translation.x,
+                    player_translation.y + 90. + (60. * i as f32),
+                    1.,
+                )),
+                ..default()
+            },
+        ));
+    }
 }
 
 pub trait Grower: Component + Sized {

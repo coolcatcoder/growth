@@ -1,7 +1,7 @@
 pub use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{camera_follow, move_players, Player};
+    pub use super::{camera_follow, move_players, orb_follow, AbilityOrb, Player};
 }
 
 #[derive(Component)]
@@ -56,4 +56,27 @@ pub fn camera_follow(
 
     camera_transform.translation.x = new_position.x;
     camera_transform.translation.y = new_position.y;
+}
+
+#[derive(Component)]
+pub struct AbilityOrb {
+    pub following: Option<Entity>,
+    pub distance: f32,
+}
+
+pub fn orb_follow(
+    mut orbs: Query<(&mut Transform, &AbilityOrb)>,
+    transforms: Query<&Transform, Without<AbilityOrb>>,
+) {
+    orbs.par_iter_mut().for_each(|(mut transform, orb)| {
+        if let Some(following) = orb.following {
+            let other_transform = transforms.get(following).unwrap();
+            let translation = (transform.translation.xy() - other_transform.translation.xy())
+                .normalize_or_zero()
+                * orb.distance
+                + other_transform.translation.xy();
+            transform.translation.x = translation.x;
+            transform.translation.y = translation.y;
+        }
+    });
 }

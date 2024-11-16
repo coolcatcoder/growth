@@ -246,7 +246,7 @@ impl StopOnCollision {
                                 // } else {
                                 //     velocity.x = 0.;
                                 // }
-                                
+
                                 //TODO: The above was so horrible, I've resorted to this...
                                 velocity.y += 5.;
                                 velocity.x = 0.;
