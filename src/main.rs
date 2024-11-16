@@ -42,6 +42,7 @@ mod prelude {
     pub use rayon::prelude::*;
     pub use std::time::Duration;
 }
+use particles::DisableMotionOnCollision;
 use prelude::*;
 
 // The world is dying. Save it. The sun will eventually hit the world. Hope they realise that sooner rather than later!
@@ -75,10 +76,13 @@ fn main() {
                 Tree::grower,
                 Leaf::grower,
                 Sun::update,
-                particle_motion,
-                air_friction,
-
-                (tick_particles, finish_running_particles).chain_ignore_deferred(),
+                (
+                    tick_particles,
+                    ((disable_motion_on_collide, step_up).chain_ignore_deferred()),
+                    particle_motion,
+                    finish_running_particles,
+                )
+                    .chain_ignore_deferred(),
             ),
         )
         .add_systems(
@@ -89,7 +93,6 @@ fn main() {
             Duration::from_secs_f64(1. / 30.),
             (
                 plant::Boulder::absorb_sun,
-                (disable_motion_on_collide, step_up).chain(),
                 (ColliderGrid::update, collide).chain(),
             ),
         )
@@ -211,11 +214,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             )),
             ..default()
         },
-        Motion::new(
-            Vec2::new(0., -5.),
-            EveryTime::new(Duration::from_secs_f64(1. / 25.), default()),
-            [true, true],
-        ),
+        ParticleTicker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
+        Motion::new(Vec2::new(0., -5.), [true, true]),
+        DisableMotionOnCollision,
         Collider { radius: 15. },
         StepUp(60.),
         AirFriction::new(Vec2::splat(0.05)),

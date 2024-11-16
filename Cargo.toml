@@ -37,6 +37,7 @@ rand = "0.8"
 leafwing-input-manager = "0.15"
 thread_local = "1.1"
 rayon = "1.10"
+derive_more = { version = "1", features = ["deref", "deref_mut"] }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
