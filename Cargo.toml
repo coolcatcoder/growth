@@ -1,0 +1,70 @@
+cargo-features = ["codegen-backend"]
+
+[package]
+name = "growth"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = ["procedural_macros"]
+
+[dependencies]
+procedural_macros = {path="procedural_macros"}
+bevy = { version = "0.14.2", default-features = false, features = [
+    "bevy_asset",
+    "bevy_audio",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gilrs",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_winit",
+    "multi_threaded",
+    "png",
+    "sysinfo_plugin",
+    "vorbis",
+    "x11",
+    "ktx2",
+    "smaa_luts",
+    "zstd",
+] }
+log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
+rand = "0.8"
+leafwing-input-manager = "0.15"
+thread_local = "1.1"
+rayon = "1.10"
+
+# Enable a small amount of optimization in the dev profile.
+[profile.dev]
+opt-level = 1
+codegen-backend = "cranelift"
+
+[profile.dev.build-override]
+codegen-backend = "llvm"
+
+# Enable a large amount of optimization in the dev profile for dependencies.
+[profile.dev.package."*"]
+opt-level = 3
+codegen-backend = "llvm"
+
+# Enable more optimization in the release profile at the cost of compile time.
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+incremental = false
+debug = false
+
+# Optimize for size in the wasm-release profile to reduce load times and bandwidth usage on web.
+[profile.wasm-release]
+# Default to release profile values.
+inherits = "release"
+# Optimize with size in mind (also try "z", sometimes it is better).
+# Slightly slows compile times, great improvements to file size and runtime performance.
+opt-level = "s"
+# Strip all debugging information from the binary to slightly reduce file size.
+strip = "debuginfo"
