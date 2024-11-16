@@ -174,7 +174,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         particle::DisableMotionOnCollision,
         Collider { radius: 15. },
         particle::StepUp(60.),
-        particle::AmbientFriction(Vec2::splat(0.05)),
+        //particle::AmbientFriction(Vec2::splat(0.05)),
     ));
 
     commands.spawn(Camera2dBundle { ..default() });

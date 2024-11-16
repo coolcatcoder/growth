@@ -27,7 +27,10 @@ impl AmbientFriction {
         particles
             .par_iter_mut()
             .for_each(|(friction, mut motion, ticker)| {
-                ticker.0.run(|| {});
+                let motion = motion.into_inner();
+                ticker.0.run(|| {
+                    motion.amount -= motion.amount.abs() * motion.amount * friction.0;
+                });
             });
     }
 }
