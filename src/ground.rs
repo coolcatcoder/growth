@@ -3,7 +3,7 @@ use bevy::ecs::system::EntityCommands;
 pub use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{create_rubble, Ground};
+    pub use super::{create_terrain, Ground};
 }
 
 #[derive(Component)]
@@ -92,16 +92,18 @@ impl Rock {
     //pub fn create()
 }
 
-pub fn create_rubble<'a>(
+pub fn create_terrain<'a>(
     translation: Vec2,
+    depth: f32,
+    colour: [f32; 3],
     commands: &'a mut Commands,
     asset_server: &AssetServer,
 ) -> EntityCommands<'a> {
     commands.spawn(SpriteBundle {
         texture: asset_server.load("nodule.png"),
-        transform: Transform::from_translation(Vec3::new(translation.x, translation.y, 0.)),
+        transform: Transform::from_translation(Vec3::new(translation.x, translation.y, depth)),
         sprite: Sprite {
-            color: Color::Srgba(Srgba::rgb(0.5, 0.5, 0.5)),
+            color: Color::Srgba(Srgba::rgb(colour[0], colour[1], colour[2])),
             ..default()
         },
         ..default()
