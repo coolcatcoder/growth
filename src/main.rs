@@ -75,7 +75,7 @@ fn main() {
             Update,
             (
                 //debug_move_camera,
-                player::debug_collisions,
+                //player::debug_collisions,
                 move_players,
                 plant::Boulder::update,
                 Ground::grower,

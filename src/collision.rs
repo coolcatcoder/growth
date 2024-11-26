@@ -25,6 +25,8 @@ where
 {
     // Top left? I don't know!
     pub origin: Vec2,
+    //#[cfg(debug_assertions)]
+    //pub debug_directions: Box<[(Vec<u8>)]>,
     pub cells: Box<[(Vec<Entity>, Parallel<Vec<Entity>>); WIDTH * HEIGHT]>,
 }
 
@@ -221,15 +223,15 @@ where
             if let Some(index) = collider_grid.translation_to_index(
                 transform.translation.xy()
                     + Vec2::new(
-                        WIDTH as f32 * -GRID_CELL_SIZE.x,
-                        HEIGHT as f32 * GRID_CELL_SIZE.y,
+                        -GRID_CELL_SIZE.x,
+                        GRID_CELL_SIZE.y,
                     ),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() + Vec2::new(0., HEIGHT as f32 * GRID_CELL_SIZE.y),
+                transform.translation.xy() + Vec2::new(0., GRID_CELL_SIZE.y),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
@@ -237,8 +239,8 @@ where
             if let Some(index) = collider_grid.translation_to_index(
                 transform.translation.xy()
                     + Vec2::new(
-                        WIDTH as f32 * GRID_CELL_SIZE.x,
-                        HEIGHT as f32 * GRID_CELL_SIZE.y,
+                        GRID_CELL_SIZE.x,
+                        GRID_CELL_SIZE.y,
                     ),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
@@ -247,13 +249,13 @@ where
             // Middle
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() + Vec2::new(WIDTH as f32 * GRID_CELL_SIZE.x, 0.),
+                transform.translation.xy() + Vec2::new(GRID_CELL_SIZE.x, 0.),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() - Vec2::new(WIDTH as f32 * GRID_CELL_SIZE.x, 0.),
+                transform.translation.xy() + Vec2::new(-GRID_CELL_SIZE.x, 0.),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
@@ -263,15 +265,15 @@ where
             if let Some(index) = collider_grid.translation_to_index(
                 transform.translation.xy()
                     + Vec2::new(
-                        WIDTH as f32 * -GRID_CELL_SIZE.x,
-                        HEIGHT as f32 * -GRID_CELL_SIZE.y,
+                        -GRID_CELL_SIZE.x,
+                        -GRID_CELL_SIZE.y,
                     ),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() + Vec2::new(0., HEIGHT as f32 * -GRID_CELL_SIZE.y),
+                transform.translation.xy() + Vec2::new(0., -GRID_CELL_SIZE.y),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
@@ -279,8 +281,8 @@ where
             if let Some(index) = collider_grid.translation_to_index(
                 transform.translation.xy()
                     + Vec2::new(
-                        WIDTH as f32 * GRID_CELL_SIZE.x,
-                        HEIGHT as f32 * -GRID_CELL_SIZE.y,
+                        GRID_CELL_SIZE.x,
+                        -GRID_CELL_SIZE.y,
                     ),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
