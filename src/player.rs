@@ -1,3 +1,5 @@
+use bevy::color::palettes::css::RED;
+
 pub use crate::prelude::*;
 
 pub mod prelude {
@@ -77,6 +79,23 @@ pub fn orb_follow(
                 + other_transform.translation.xy();
             transform.translation.x = translation.x;
             transform.translation.y = translation.y;
+        }
+    });
+}
+
+pub fn debug_collisions(
+    mut gizmos: Gizmos,
+    players: Query<&Transform, With<Player>>,
+    colliders: Query<(&Transform, &Collider)>,
+    collider_grid: Res<ColliderGrid>,
+) {
+    players.iter().for_each(|transform| {
+        if let Some(index) = collider_grid.translation_to_index(transform.translation.xy()) {
+            collider_grid.cells[index].0.iter().for_each(|entity| {
+                let (transform, collider) = colliders.get(*entity).unwrap();
+
+                gizmos.circle_2d(transform.translation.xy(), collider.radius, RED);
+            });
         }
     });
 }

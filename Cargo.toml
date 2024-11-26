@@ -31,6 +31,7 @@ bevy = { version = "0.14.2", default-features = false, features = [
     "ktx2",
     "smaa_luts",
     "zstd",
+    "bevy_gizmos",
 ] }
 log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
 rand = "0.8"

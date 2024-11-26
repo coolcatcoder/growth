@@ -65,8 +65,8 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            //FrameTimeDiagnosticsPlugin,
-            //LogDiagnosticsPlugin::default(),
+            FrameTimeDiagnosticsPlugin,
+            LogDiagnosticsPlugin::default(),
             InputManagerPlugin::<Action>::default(),
             RunEveryPlugin,
         ))
@@ -74,8 +74,9 @@ fn main() {
         .add_systems(
             Update,
             (
-                debug_move_camera,
-                //move_players,
+                //debug_move_camera,
+                player::debug_collisions,
+                move_players,
                 plant::Boulder::update,
                 Ground::grower,
                 Tree::grower,
@@ -95,10 +96,10 @@ fn main() {
                     .chain_ignore_deferred(),
             ),
         )
-        // .add_systems(
-        //     PostUpdate,
-        //     camera_follow.before(TransformSystem::TransformPropagate),
-        // )
+        .add_systems(
+            PostUpdate,
+            camera_follow.before(TransformSystem::TransformPropagate),
+        )
         .add_systems_that_run_every(
             Duration::from_secs_f64(1. / 30.),
             (
@@ -123,6 +124,7 @@ struct NoduleConfig {
     depth: f32,
     diameter: f32,
     colour: [f32; 3],
+    collision: bool,
 }
 
 impl Default for NoduleConfig {
@@ -131,6 +133,7 @@ impl Default for NoduleConfig {
             depth: 0.,
             diameter: 30.,
             colour: [0.5, 0.5, 0.5],
+            collision: true,
         }
     }
 }
@@ -158,7 +161,7 @@ struct LineConfig {
 impl Default for LineConfig {
     fn default() -> Self {
         Self {
-            spacing: Vec2::splat(30.),
+            spacing: Vec2::splat(20.),
 
             offset_y_bounds: (30. * -5.)..(30. * 5.),
             offset_y_change: -20.0..20.0,
@@ -174,10 +177,13 @@ impl Default for LineConfig {
     }
 }
 
-struct Terrain<'c, 'a, 'w, 's> {
-    previous_translation: Vec2,
+#[derive(Copy, Clone)]
+struct LineEnd {
+    translation: Vec2,
     offset_y: f32,
+}
 
+struct Terrain<'c, 'a, 'w, 's> {
     rng: ThreadRng,
 
     commands: &'c mut Commands<'w, 's>,
@@ -185,10 +191,10 @@ struct Terrain<'c, 'a, 'w, 's> {
 }
 
 impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
-    const DEBUG: bool = true;
+    const DEBUG: bool = false;
 
     fn create(&mut self, config: NoduleConfig, translation: Vec2) -> EntityCommands {
-        self.commands.spawn(SpriteBundle {
+        let mut entity_commands = self.commands.spawn(SpriteBundle {
             texture: self.asset_server.load("nodule.png"),
             transform: Transform::from_translation(Vec3::new(
                 translation.x,
@@ -205,14 +211,19 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
                 ..default()
             },
             ..default()
-        })
+        });
+
+        if config.collision {
+            entity_commands.insert(Collider {
+                radius: config.diameter / 2.,
+            });
+        }
+
+        entity_commands
     }
 
     fn new(from: Vec2, commands: &'c mut Commands<'w, 's>, asset_server: &'a AssetServer) -> Self {
         let mut terrain = Self {
-            previous_translation: from,
-            offset_y: 0.,
-
             rng: thread_rng(),
 
             commands,
@@ -234,10 +245,22 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
     }
 
     // Consider switching from nodule config to a closure that returns a nodule config with parameters for x and y and such like.
-    fn line(&mut self, to: Vec2, config: LineConfig, nodule: NoduleConfig) -> &mut Self {
+    fn line(
+        &mut self,
+        from: LineEnd,
+        to: Vec2,
+        config: LineConfig,
+        nodule: NoduleConfig,
+    ) -> LineEnd {
+        let mut to = LineEnd {
+            translation: to,
+            offset_y: from.offset_y,
+        };
+
         //let distance = self.previous_translation.distance(to);
-        let distance_x = (self.previous_translation.x - to.x).abs();
-        let gradient = (to.y - self.previous_translation.y) / (to.x - self.previous_translation.x);
+        let distance_x = (from.translation.x - to.translation.x).abs();
+        let gradient =
+            (to.translation.y - from.translation.y) / (to.translation.x - from.translation.x);
 
         if Self::DEBUG {
             self.create(
@@ -246,7 +269,7 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
                     diameter: 40.,
                     ..default()
                 },
-                to,
+                to.translation,
             );
         }
 
@@ -262,26 +285,28 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
                         colour: [0., 0., 1.],
                         ..default()
                     },
-                    Vec2::new(x, y) + self.previous_translation,
+                    Vec2::new(x, y) + from.translation,
                 );
                 self.create(
                     NoduleConfig {
                         colour: [0., 1., 0.],
                         ..default()
                     },
-                    Vec2::new(x, y + config.offset_y_bounds.start) + self.previous_translation,
+                    Vec2::new(x, y + config.offset_y_bounds.start) + from.translation,
                 );
                 self.create(
                     NoduleConfig {
                         colour: [0., 1., 0.],
                         ..default()
                     },
-                    Vec2::new(x, y + config.offset_y_bounds.end) + self.previous_translation,
+                    Vec2::new(x, y + config.offset_y_bounds.end) + from.translation,
                 );
             }
 
-            self.offset_y += self.rng.gen_range(config.offset_y_change.clone());
-            self.offset_y = self
+            to.offset_y += self
+                .rng
+                .gen_range_allow_empty(config.offset_y_change.clone());
+            to.offset_y = to
                 .offset_y
                 .clamp(config.offset_y_bounds.start, config.offset_y_bounds.end);
 
@@ -289,14 +314,14 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
 
             let mut spawner = |translation: f32| {
                 let jitter = Vec2::new(
-                    self.rng.gen_range(config.jitter_x.clone()),
-                    self.rng.gen_range(config.jitter_y.clone()),
+                    self.rng.gen_range_allow_empty(config.jitter_x.clone()),
+                    self.rng.gen_range_allow_empty(config.jitter_y.clone()),
                 );
 
                 self.create(
                     nodule.clone(),
-                    Vec2::new(x, y + self.offset_y + translation + roughness)
-                        + self.previous_translation
+                    Vec2::new(x, y + to.offset_y + translation + roughness)
+                        + from.translation
                         + jitter,
                 );
             };
@@ -312,8 +337,7 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
             }
         }
 
-        self.previous_translation = to;
-        self
+        to
     }
 }
 
@@ -323,7 +347,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut terrain = Terrain::new(Vec2::new(-25_000., 10000.0), &mut commands, &asset_server);
 
     //MARK: Mountain
-    terrain.line(
+    let mountain = terrain.line(
+        LineEnd {
+            translation: Vec2::new(-25_000., 10000.),
+            offset_y: 0.,
+        },
         Vec2::new(-20_000., 0.),
         LineConfig {
             depth: 100,
@@ -334,114 +362,102 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         NoduleConfig { ..default() },
     );
 
-    terrain
-        .line(
-            Vec2::new(-5_000., -500.0),
-            LineConfig {
-                depth: 50,
-                ..default()
-            },
-            NoduleConfig { ..default() },
-        )
-        .line(
-            Vec2::new(-500., 1000.),
-            LineConfig {
-                depth: 50,
-                ..default()
-            },
-            NoduleConfig { ..default() },
-        );
+    //MARK: Forest?
+    let forest = terrain.line(
+        mountain,
+        Vec2::new(-5_000., 0.),
+        LineConfig {
+            depth: 50,
+            ..default()
+        },
+        NoduleConfig { ..default() },
+    );
 
-    // less natural looking than the previous. More random, despite being more consistent.
-    // let mut world_x = -20_000.;
-    // for x in 0..1000 {
-    //     let mut world_y = rng.gen_range(-100.0..100.0);
-    //     for y in 0..5 {
-    //         create_terrain(
-    //             Vec2::new(world_x, world_y),
-    //             0.,
-    //             [0.5, 0.5, 0.5],
-    //             &mut commands,
-    //             &asset_server,
-    //         );
-    //         world_y += 15.;
-    //     }
+    //MARK: Lake
+    //water
+    let water_y = 30. * -6.;
+    terrain.line(
+        LineEnd {
+            translation: Vec2::new(forest.translation.x, water_y),
+            offset_y: 0.,
+        },
+        Vec2::new(500., water_y),
+        LineConfig {
+            offset_y_change: 0.0..0.0,
+            ..default()
+        },
+        NoduleConfig {
+            depth: -1.,
+            colour: [0., 0., 1.],
+            ..default()
+        },
+    );
+    // Terrain::new(Vec2::new(-5_000., 0.), &mut commands, &asset_server).line(
+    //     Vec2::new(-500., -1000.),
+    //     LineConfig {
+    //         depth: 50,
+    //         ..default()
+    //     },
+    //     NoduleConfig { ..default() },
+    // );
 
-    //     world_x += 15.;
-    // }
-
-    //MARK: Base
-    // let mut previous_translation = Vec2::new(-20_000., 0.0);
-    // for x in 0..1000 {
-    //     let mut height = previous_translation.y;
-    //     for y in 0..5 {
-    //         create_terrain(
-    //             Vec2::new(previous_translation.x, height),
-    //             0.,
-    //             [0.5, 0.5, 0.5],
-    //             &mut commands,
-    //             &asset_server,
-    //         );
-    //         height += 15.;
-    //     }
-
-    //     if x <= 333 {
-    //         if previous_translation.y > 50. {
-    //             previous_translation.y += rng.gen_range(-5.0..0.0);
-    //         } else if previous_translation.y < -50. {
-    //             previous_translation.y += rng.gen_range(0.0..5.0);
-    //         } else {
-    //             previous_translation.y += rng.gen_range(-5.0..5.0);
-    //         }
-    //     } else if x <= 500 {
-    //         if previous_translation.y > -500. {
-    //             previous_translation.y += rng.gen_range(-10.0..-0.0);
-    //         }
-    //     }
-    //     previous_translation.x += 15.;
-    // }
+    let lake = terrain.line(
+        forest,
+        Vec2::new(-500., -1500.),
+        LineConfig {
+            depth: 50,
+            ..default()
+        },
+        NoduleConfig { ..default() },
+    );
 
     //MARK: Pancake Falls
-    let mut player_translation = Vec2::ZERO;
-    let mut previous_translation = Vec2::new(0.0, 0.0);
-    for x in 0..120 {
-        if x == 61 {
-            player_translation = previous_translation
-        }
+    let start_x = -500.;
+    let start_y = -1500.;
+    let increment_x = 500.;
+    let increment_y = 1500.;
+    let rise = 300.;
+    let thickness = 30;
 
-        let mut depth = previous_translation.y;
-        for y in 0..100 {
-            if y == 50 {
-                depth += 1000.;
-            }
+    for y in 0..5 {
+        for x in 0..4 {
+            let y_to_from = match x {
+                0 => (0., rise),
+                1 => (rise, 0.),
+                2 => (0., rise),
+                3 => (rise, 0.),
+                _ => unreachable!(),
+            };
 
-            let mut rubble = create_terrain(
-                Vec2::new(previous_translation.x + rng.gen_range(20.0..40.0), depth),
-                -1.,
-                [0.5, 0.5, 0.8],
-                &mut commands,
-                &asset_server,
+            terrain.line(
+                LineEnd {
+                    translation: Vec2::new(
+                        start_x + x as f32 * increment_x + y as f32 * increment_x,
+                        start_y + y as f32 * increment_y + y_to_from.0,
+                    ),
+                    offset_y: 0.,
+                },
+                Vec2::new(
+                    start_x + (x + 1) as f32 * increment_x + y as f32 * increment_x,
+                    start_y + y as f32 * increment_y + y_to_from.1,
+                ),
+                LineConfig {
+                    spacing: Vec2::splat(30.),
+                    depth: thickness,
+                    offset_y_change: 0.0..0.0,
+                    jitter_x: 0.0..0.0,
+                    jitter_y: 0.0..0.0,
+                    ..default()
+                },
+                NoduleConfig {
+                    colour: [0.5, 0.5, 0.8],
+                    ..default()
+                },
             );
-
-            if y == 0 || y == 49 || y == 50 {
-                rubble.insert(Collider { radius: 15. });
-            }
-
-            depth += 30.;
-        }
-
-        previous_translation.x += 30.;
-
-        if x <= 30 {
-            previous_translation.y += rng.gen_range(10.0..20.0);
-        } else if x <= 60 {
-            previous_translation.y -= rng.gen_range(10.0..20.0);
-        } else if x <= 90 {
-            previous_translation.y += rng.gen_range(10.0..20.0);
-        } else {
-            previous_translation.y -= rng.gen_range(10.0..20.0)
         }
     }
+
+    let mut player_translation = Vec2::ZERO;
 
     info!("player {}", player_translation);
 
