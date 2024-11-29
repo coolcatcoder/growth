@@ -8,8 +8,10 @@ pub mod prelude {
     pub type ColliderGrid = super::ColliderGrid<GRID_WIDTH, GRID_HEIGHT>;
 
     pub use super::{
-        collide, Collider, CollisionQuestion, CollisionSensor, DistanceSquaredBetweenEdgesQuestion,
-        GRID_CELL_SIZE, GRID_HEIGHT, GRID_ORIGIN, GRID_WIDTH,
+        collide, distance_squared_between_edges, CollisionQuestion as CollisionQuestionDeprecated,
+        CollisionSensor as CollisionSensorDeprecated,
+        DistanceSquaredBetweenEdgesQuestion as DistanceSquaredBetweenEdgesQuestionDeprecated,
+        Radius, GRID_CELL_SIZE, GRID_HEIGHT, GRID_ORIGIN, GRID_WIDTH,
     };
 }
 
@@ -58,7 +60,7 @@ where
         translation: Vec2,
         radius: f32,
         ignore: Option<Entity>,
-        colliders: &Query<(&Collider, &Transform), T>,
+        colliders: &Query<(&Radius, &Transform), T>,
     ) -> Collisions {
         let mut collisions = Collisions::default();
 
@@ -78,7 +80,7 @@ where
             if check_collision(
                 radius,
                 translation,
-                other_collider.radius,
+                other_collider.0,
                 other_transform.translation.xy(),
             ) {
                 collisions.add(*other_entity);
@@ -92,7 +94,7 @@ where
         translation: Vec2,
         radius: f32,
         ignore: Option<Entity>,
-        colliders: &Query<(&Collider, &Transform), T>,
+        colliders: &Query<(&Radius, &Transform), T>,
     ) -> bool {
         let Some(grid_index) = self.translation_to_index(translation) else {
             return false;
@@ -110,7 +112,7 @@ where
             if check_collision(
                 radius,
                 translation,
-                other_collider.radius,
+                other_collider.0,
                 other_transform.translation.xy(),
             ) {
                 return true;
@@ -126,7 +128,8 @@ where
         radius: f32,
         limit: f32,
         ignore: Option<Entity>,
-        colliders: &Query<(&Collider, &Transform), T>,
+        colliders: &Query<(&Radius, &Transform), T>,
+        //TODO: Replace f32 with Option<f32>
     ) -> f32 {
         // With enough translation, it might leave the current grid cell. Keep that in mind!
 
@@ -164,7 +167,7 @@ where
 
                     let (other_collider, other_transform) = colliders.get(*other_entity).unwrap();
 
-                    if other_transform.translation.y + other_collider.radius
+                    if other_transform.translation.y + other_collider.0
                         <= translation.y + y_translation - radius
                     {
                         return;
@@ -173,11 +176,11 @@ where
                     if check_collision(
                         radius,
                         last_translation,
-                        other_collider.radius,
+                        other_collider.0,
                         other_transform.translation.xy(),
                     ) {
                         // This is true only for jumping to the center of the circle. Probably good enough though.
-                        y_translation = other_transform.translation.y + other_collider.radius
+                        y_translation = other_transform.translation.y + other_collider.0
                             - last_translation.y
                             + radius;
                     }
@@ -191,7 +194,7 @@ where
 
     pub fn update(
         mut collider_grid: ResMut<ColliderGrid<WIDTH, HEIGHT>>,
-        colliders: Query<(Entity, &Transform), With<Collider>>,
+        colliders: Query<(Entity, &Transform), With<Radius>>,
     ) {
         colliders.par_iter().for_each(|(entity, transform)| {
             // Do we want each entity to be in a neat box, or do we also want to push them into surrounding boxes, so that we only iterate one grid later?
@@ -221,69 +224,53 @@ where
             // Top
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy()
-                    + Vec2::new(
-                        -GRID_CELL_SIZE.x,
-                        GRID_CELL_SIZE.y,
-                    ),
+                transform.translation.xy() + Vec2::new(-GRID_CELL_SIZE.x, GRID_CELL_SIZE.y),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
-            if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() + Vec2::new(0., GRID_CELL_SIZE.y),
-            ) {
+            if let Some(index) = collider_grid
+                .translation_to_index(transform.translation.xy() + Vec2::new(0., GRID_CELL_SIZE.y))
+            {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy()
-                    + Vec2::new(
-                        GRID_CELL_SIZE.x,
-                        GRID_CELL_SIZE.y,
-                    ),
+                transform.translation.xy() + Vec2::new(GRID_CELL_SIZE.x, GRID_CELL_SIZE.y),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
             // Middle
 
-            if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() + Vec2::new(GRID_CELL_SIZE.x, 0.),
-            ) {
+            if let Some(index) = collider_grid
+                .translation_to_index(transform.translation.xy() + Vec2::new(GRID_CELL_SIZE.x, 0.))
+            {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
-            if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() + Vec2::new(-GRID_CELL_SIZE.x, 0.),
-            ) {
+            if let Some(index) = collider_grid
+                .translation_to_index(transform.translation.xy() + Vec2::new(-GRID_CELL_SIZE.x, 0.))
+            {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
             // Bottom
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy()
-                    + Vec2::new(
-                        -GRID_CELL_SIZE.x,
-                        -GRID_CELL_SIZE.y,
-                    ),
+                transform.translation.xy() + Vec2::new(-GRID_CELL_SIZE.x, -GRID_CELL_SIZE.y),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
-            if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy() + Vec2::new(0., -GRID_CELL_SIZE.y),
-            ) {
+            if let Some(index) = collider_grid
+                .translation_to_index(transform.translation.xy() + Vec2::new(0., -GRID_CELL_SIZE.y))
+            {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
 
             if let Some(index) = collider_grid.translation_to_index(
-                transform.translation.xy()
-                    + Vec2::new(
-                        GRID_CELL_SIZE.x,
-                        -GRID_CELL_SIZE.y,
-                    ),
+                transform.translation.xy() + Vec2::new(GRID_CELL_SIZE.x, -GRID_CELL_SIZE.y),
             ) {
                 collider_grid.cells[index].1.borrow_local_mut().push(entity);
             }
@@ -294,11 +281,6 @@ where
             cell.1.iter_mut().for_each(|vec| cell.0.append(vec));
         });
     }
-
-    // // If none, then there is not a cell at the position yet.
-    // pub fn get(&self, translation: Vec2) -> Option<&[Entity]> {
-    //     Some(&self.cells[self.translation_to_index(translation)?])
-    // }
 
     pub fn translation_to_index(&self, translation: Vec2) -> Option<usize> {
         if translation.x < self.origin.x || translation.y < self.origin.y {
@@ -426,21 +408,7 @@ impl CollisionSensor {
 }
 
 #[derive(Component)]
-pub struct Collider {
-    pub radius: f32,
-}
-
-impl Collider {
-    pub fn radius(radius: f32) -> Self {
-        Self { radius }
-    }
-
-    pub fn diameter(diameter: f32) -> Self {
-        Self {
-            radius: diameter / 2.,
-        }
-    }
-}
+pub struct Radius(pub f32);
 
 pub fn check_collision(
     radius: f32,
@@ -458,8 +426,8 @@ pub fn check_collision(
 
 pub fn collide(
     collider_grid: Res<ColliderGrid<GRID_WIDTH, GRID_HEIGHT>>,
-    colliders: Query<(Entity, &Collider, &Transform)>,
-    mut sensors: Query<(Entity, &Collider, &Transform, &mut CollisionSensor)>,
+    colliders: Query<(Entity, &Radius, &Transform)>,
+    mut sensors: Query<(Entity, &Radius, &Transform, &mut CollisionSensor)>,
     mut collision_questions: Query<(Entity, &mut CollisionQuestion)>,
     mut distance_questions: Query<(Entity, &mut DistanceSquaredBetweenEdgesQuestion)>,
     mut commands: Commands,
@@ -485,9 +453,9 @@ pub fn collide(
                         colliders.get(*other_entity).unwrap();
 
                     if check_collision(
-                        collider.radius,
+                        collider.0,
                         transform.translation.xy(),
-                        other_collider.radius,
+                        other_collider.0,
                         other_transform.translation.xy(),
                     ) {
                         sensor.collisions.add(other_entity);
@@ -524,7 +492,7 @@ pub fn collide(
                     if check_collision(
                         question.radius,
                         question.translation,
-                        other_collider.radius,
+                        other_collider.0,
                         other_transform.translation.xy(),
                     ) {
                         collisions.add(other_entity);
@@ -563,7 +531,7 @@ pub fn collide(
                     if check_collision(
                         question.radius,
                         question.translation,
-                        other_collider.radius,
+                        other_collider.0,
                         other_transform.translation.xy(),
                     ) {
                         let distance_squared = question
@@ -572,11 +540,36 @@ pub fn collide(
 
                         let distance_squared_between_edges = distance_squared
                             - (question.radius * question.radius)
-                            - (other_collider.radius * other_collider.radius);
+                            - (other_collider.0 * other_collider.0);
                         collisions.add(other_entity, distance_squared_between_edges);
                     }
                 });
 
             question.answer = Some(collisions);
         });
+}
+
+pub fn distance_squared_between_edges(
+    radius: f32,
+    translation: Vec2,
+    other_radius: f32,
+    other_translation: Vec2,
+) -> f32 {
+    let distance_squared = translation.distance_squared(other_translation);
+    // Should this be squared(radius + other_radius) instead???
+    let sum_of_squared_radii = squared(radius + other_radius);
+    let sum_of_squared_radii = squared(radius) + squared(other_radius);
+
+    if distance_squared < sum_of_squared_radii {
+        0.
+    } else {
+        let distance_squared_between_edges = distance_squared - sum_of_squared_radii;
+        distance_squared_between_edges
+    }
+
+    // Old code. The above code was what chatgpt thinks is improved. I did this cause I don't know how to search the internet yet.
+    // let distance_squared_between_edges =
+    //     distance_squared - (radius * radius) - (other_radius * other_radius);
+
+    // distance_squared_between_edges
 }

@@ -86,7 +86,7 @@ pub fn orb_follow(
 pub fn debug_collisions(
     mut gizmos: Gizmos,
     players: Query<&Transform, With<Player>>,
-    colliders: Query<(&Transform, &Collider)>,
+    colliders: Query<(&Transform, &Radius)>,
     collider_grid: Res<ColliderGrid>,
 ) {
     players.iter().for_each(|transform| {
@@ -94,7 +94,7 @@ pub fn debug_collisions(
             collider_grid.cells[index].0.iter().for_each(|entity| {
                 let (transform, collider) = colliders.get(*entity).unwrap();
 
-                gizmos.circle_2d(transform.translation.xy(), collider.radius, RED);
+                gizmos.circle_2d(transform.translation.xy(), collider.0, RED);
             });
         }
     });

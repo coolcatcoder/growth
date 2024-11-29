@@ -57,11 +57,11 @@ impl StepUp {
             Entity,
             &mut Transform,
             &mut Motion,
-            &Collider,
+            &Radius,
             &StepUp,
             &Ticker,
         )>,
-        colliders: Query<(&Collider, &Transform), Without<StepUp>>,
+        colliders: Query<(&Radius, &Transform), Without<StepUp>>,
     ) {
         particles.par_iter_mut().for_each(
             |(entity, mut transform, mut motion, collider, step_up, ticker)| {
@@ -71,7 +71,7 @@ impl StepUp {
                         let minimum_y_translation = collider_grid
                             .no_collisions_minimum_y_translation_with_limit(
                                 transform.translation.xy() + Vec2::new(motion.amount.x, 0.),
-                                collider.radius,
+                                collider.0,
                                 step_up.0,
                                 Some(entity),
                                 &colliders,
@@ -143,10 +143,10 @@ impl StopOnCollision {
     pub fn motion(
         collider_grid: Res<ColliderGrid>,
         mut particles: Query<
-            (Entity, &Transform, &mut Motion, &Collider, &Ticker),
+            (Entity, &Transform, &mut Motion, &Radius, &Ticker),
             With<StopOnCollision>,
         >,
-        colliders: Query<(&Collider, &Transform)>,
+        colliders: Query<(&Radius, &Transform)>,
     ) {
         particles
             .par_iter_mut()
@@ -160,7 +160,7 @@ impl StopOnCollision {
 
                     let all_axes_colliding = collider_grid.collides_with_any(
                         transform.translation.xy() + motion.amount,
-                        collider.radius,
+                        collider.0,
                         Some(entity),
                         &colliders,
                     );
@@ -168,14 +168,14 @@ impl StopOnCollision {
                     if all_axes_colliding {
                         motion.enabled[0] = !collider_grid.collides_with_any(
                             transform.translation.xy() + Vec2::new(motion.amount.x, 0.),
-                            collider.radius,
+                            collider.0,
                             Some(entity),
                             &colliders,
                         );
 
                         motion.enabled[1] = !collider_grid.collides_with_any(
                             transform.translation.xy() + Vec2::new(0., motion.amount.y),
-                            collider.radius,
+                            collider.0,
                             Some(entity),
                             &colliders,
                         );
@@ -192,13 +192,13 @@ impl StopOnCollision {
                 Entity,
                 &Transform,
                 &mut Velocity,
-                &Collider,
+                &Radius,
                 Option<&StepUp>,
                 &Ticker,
             ),
             With<StopOnCollision>,
         >,
-        colliders: Query<(&Collider, &Transform)>,
+        colliders: Query<(&Radius, &Transform)>,
     ) {
         particles.par_iter_mut().for_each(
             |(entity, transform, mut velocity, collider, step_up, ticker)| {
@@ -209,7 +209,7 @@ impl StopOnCollision {
 
                     let all_axes_colliding = collider_grid.collides_with_any(
                         transform.translation.xy() + **velocity,
-                        collider.radius,
+                        collider.0,
                         Some(entity),
                         &colliders,
                     );
@@ -217,7 +217,7 @@ impl StopOnCollision {
                     if all_axes_colliding {
                         if collider_grid.collides_with_any(
                             transform.translation.xy() + Vec2::new(0., velocity.y),
-                            collider.radius,
+                            collider.0,
                             Some(entity),
                             &colliders,
                         ) {
@@ -226,7 +226,7 @@ impl StopOnCollision {
 
                         if collider_grid.collides_with_any(
                             transform.translation.xy() + Vec2::new(velocity.x, 0.),
-                            collider.radius,
+                            collider.0,
                             Some(entity),
                             &colliders,
                         ) {
@@ -235,7 +235,7 @@ impl StopOnCollision {
                                 // let minimum_y_translation = collider_grid
                                 //     .no_collisions_minimum_y_translation_with_limit(
                                 //         transform.translation.xy() + Vec2::new(velocity.x, 0.),
-                                //         collider.radius,
+                                //         collider.0,
                                 //         step_up.0,
                                 //         Some(entity),
                                 //         &colliders,

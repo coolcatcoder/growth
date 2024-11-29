@@ -29,7 +29,7 @@ mod time;
 mod tree;
 
 mod prelude {
-    pub use super::{squared, Action, Grower};
+    pub use super::{squared, Action, Grower, MutateComponent};
     pub use crate::{
         collision::prelude::*, ground::prelude::*, particle, player::prelude::*, sun::prelude::*,
         time::prelude::*, tree::prelude::*,
@@ -65,8 +65,8 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            FrameTimeDiagnosticsPlugin,
-            LogDiagnosticsPlugin::default(),
+            //FrameTimeDiagnosticsPlugin,
+            //LogDiagnosticsPlugin::default(),
             InputManagerPlugin::<Action>::default(),
             RunEveryPlugin,
         ))
@@ -74,10 +74,10 @@ fn main() {
         .add_systems(
             Update,
             (
-                //debug_move_camera,
+                debug_move_camera,
                 //player::debug_collisions,
-                move_players,
-                plant::Boulder::update,
+                //move_players,
+                plant::Boulder::update_system,
                 Ground::grower,
                 Tree::grower,
                 Leaf::grower,
@@ -96,17 +96,15 @@ fn main() {
                     .chain_ignore_deferred(),
             ),
         )
-        .add_systems(
-            PostUpdate,
-            camera_follow.before(TransformSystem::TransformPropagate),
-        )
+        // .add_systems(
+        //     PostUpdate,
+        //     camera_follow.before(TransformSystem::TransformPropagate),
+        // )
         .add_systems_that_run_every(
             Duration::from_secs_f64(1. / 30.),
-            (
-                orb_follow,
-                plant::Boulder::absorb_sun,
-                (ColliderGrid::update, collide).chain(),
-            ),
+            // TODO: ColliderGrid::update is special, in the fact that an entity likely won't move more than a grid every frame,
+            // so it doesn't have to update as often as we currently have it set.
+            (orb_follow, (ColliderGrid::update, collide).chain()),
         )
         // Maybe not...
         //.add_systems_that_run_every(Duration::from_secs_f64(1. / 5.), sync_player_transforms)
@@ -138,7 +136,7 @@ impl Default for NoduleConfig {
     }
 }
 
-struct LineConfig {
+struct LineConfig<'a> {
     spacing: Vec2,
 
     // Offset y translates y and creeps randomly up and down.
@@ -152,13 +150,18 @@ struct LineConfig {
     jitter_x: Range<f32>,
     jitter_y: Range<f32>,
 
+    // Why isn't this one range???
     height: u32,
     depth: u32,
+
     // Idea: Easing
     // Slowly pulls in the clamp (perhaps via lerp?) so that the nodules finish exactly (or inexactly) at the end point!
+
+    // Temp and easy for seeds. TODO: I know I should replace it eventually.
+    store_middle: Option<&'a mut Vec<Vec2>>,
 }
 
-impl Default for LineConfig {
+impl<'a> Default for LineConfig<'a> {
     fn default() -> Self {
         Self {
             spacing: Vec2::splat(20.),
@@ -173,6 +176,8 @@ impl Default for LineConfig {
 
             height: 0,
             depth: 0,
+
+            store_middle: None,
         }
     }
 }
@@ -214,8 +219,8 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
         });
 
         if config.collision {
-            entity_commands.insert(Collider {
-                radius: config.diameter / 2.,
+            entity_commands.insert(Radius {
+                0: config.diameter / 2.,
             });
         }
 
@@ -225,7 +230,7 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
     fn new(from: Vec2, commands: &'c mut Commands<'w, 's>, asset_server: &'a AssetServer) -> Self {
         let mut terrain = Self {
             rng: thread_rng(),
-
+            //rng: StdRng::from_rng(thread_rng()).unwrap(),
             commands,
             asset_server,
         };
@@ -241,6 +246,10 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
             );
         }
 
+        // 1970474327465874943
+        // let seed = terrain.rng.next_u64();
+        // info!("{seed}");
+
         terrain
     }
 
@@ -249,7 +258,7 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
         &mut self,
         from: LineEnd,
         to: Vec2,
-        config: LineConfig,
+        mut config: LineConfig,
         nodule: NoduleConfig,
     ) -> LineEnd {
         let mut to = LineEnd {
@@ -275,7 +284,13 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
 
         // Hang on a second, why is this using distance? Shouldn't it only be x distance, not real distance???
         // I've replaced it with distance_x, but we should make certain that this is now correct.
-        for x in 0..((distance_x / config.spacing.x).round() as u32) {
+        let end = (distance_x / config.spacing.x).round() as u32;
+
+        if let Some(ref mut middle) = config.store_middle {
+            middle.reserve(end as usize);
+        }
+
+        for x in 0..end {
             let x = x as f32 * config.spacing.x;
             let y = x * gradient;
 
@@ -312,28 +327,31 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
 
             let roughness = self.rng.gen_range_allow_empty(config.roughness.clone());
 
-            let mut spawner = |translation: f32| {
+            let mut spawner = |translation: f32, middle: &mut Option<&mut Vec<Vec2>>| {
                 let jitter = Vec2::new(
                     self.rng.gen_range_allow_empty(config.jitter_x.clone()),
                     self.rng.gen_range_allow_empty(config.jitter_y.clone()),
                 );
 
-                self.create(
-                    nodule.clone(),
-                    Vec2::new(x, y + to.offset_y + translation + roughness)
-                        + from.translation
-                        + jitter,
-                );
+                let translation = Vec2::new(x, y + to.offset_y + translation + roughness)
+                    + from.translation
+                    + jitter;
+
+                if let Some(middle) = middle {
+                    middle.push(translation);
+                }
+
+                self.create(nodule.clone(), translation);
             };
 
             for height in 0..config.height {
-                spawner((height + 1) as f32 * config.spacing.y);
+                spawner((height + 1) as f32 * config.spacing.y, &mut None);
             }
 
-            spawner(0.0);
+            spawner(0.0, &mut config.store_middle);
 
             for depth in 0..config.depth {
-                spawner((depth + 1) as f32 * -config.spacing.y);
+                spawner((depth + 1) as f32 * -config.spacing.y, &mut None);
             }
         }
 
@@ -342,7 +360,7 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let mut rng = thread_rng();
+    let mut rng: ThreadRng = thread_rng();
 
     let mut terrain = Terrain::new(Vec2::new(-25_000., 10000.0), &mut commands, &asset_server);
 
@@ -363,15 +381,28 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     );
 
     //MARK: Forest?
+    // TODO: Add caves and other points of interest. Also plants!!!
+    let mut forest_surface = vec![];
     let forest = terrain.line(
         mountain,
         Vec2::new(-5_000., 0.),
         LineConfig {
             depth: 50,
+            store_middle: Some(&mut forest_surface),
             ..default()
         },
         NoduleConfig { ..default() },
     );
+
+    for translation in forest_surface {
+        if rng.gen_bool(0.01) {
+            plant::Boulder::create(
+                translation + Vec2::new(0., 40.),
+                terrain.commands,
+                &asset_server,
+            );
+        }
+    }
 
     //MARK: Lake
     //water
@@ -401,7 +432,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     //     NoduleConfig { ..default() },
     // );
 
-    let lake = terrain.line(
+    terrain.line(
         forest,
         Vec2::new(-500., -1500.),
         LineConfig {
@@ -480,7 +511,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             particle::Ticker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
             particle::Velocity(Vec2::new(0., -5.)),
             particle::StopOnCollision,
-            Collider { radius: 15. },
+            Radius { 0: 15. },
             particle::StepUp(60.),
             particle::AmbientFriction(Vec2::splat(0.02)),
         ))
@@ -605,7 +636,7 @@ trait RngExtension {
         R: SampleRange<T> + RangeStartEnd<T>;
 }
 
-impl RngExtension for ThreadRng {
+impl<Rng: RngCore> RngExtension for Rng {
     fn gen_range_allow_empty<T, R>(&mut self, range: R) -> T
     where
         T: SampleUniform + PartialEq,
@@ -616,5 +647,18 @@ impl RngExtension for ThreadRng {
         } else {
             range.sample_single(self)
         }
+    }
+}
+
+//MARK: MutateComponent
+pub trait MutateComponent {
+    fn mutate_component<T: Component>(&mut self, f: impl FnOnce(Mut<T>) + Send + Sync + 'static);
+}
+
+impl MutateComponent for EntityCommands<'_> {
+    fn mutate_component<T: Component>(&mut self, f: impl FnOnce(Mut<T>) + Send + Sync + 'static) {
+        self.add(move |mut entity: EntityWorldMut| {
+            f(entity.get_mut::<T>().unwrap());
+        });
     }
 }

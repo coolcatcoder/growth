@@ -39,8 +39,7 @@ impl Sun {
                 time_passed: rng.gen_range(0.0..0.2),
                 energy,
             },
-            CollisionSensor::default(),
-            Collider::diameter(diameter),
+            Radius(diameter / 2.),
             SpriteBundle {
                 texture: asset_server.load("nodule.png"),
                 transform: Transform::from_translation(Vec3::new(
@@ -60,13 +59,13 @@ impl Sun {
 
     pub fn update(
         time: Res<Time>,
-        mut suns: Query<(Entity, &mut Sun, &mut Transform, &CollisionSensor)>,
+        mut suns: Query<(Entity, &mut Sun, &mut Transform)>,
         mut commands: Commands,
     ) {
         const MOVE_TIME: f32 = 0.2;
 
         suns.iter_mut()
-            .for_each(|(entity, mut sun, mut transform, sensor)| {
+            .for_each(|(entity, mut sun, mut transform)| {
                 sun.time_passed += time.delta_seconds();
 
                 while sun.time_passed >= MOVE_TIME {
