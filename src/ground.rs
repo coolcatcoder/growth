@@ -6,38 +6,37 @@ pub mod prelude {
     pub use super::{create_terrain, Ground};
 }
 
+pub struct GrowTimer {
+    timer: EveryTime,
+}
+
 #[derive(Component)]
 pub struct Ground {
     timer: Timer,
     distance_from_last_plant: u16,
 }
 
-impl Grower for Ground {
-    type SystemParameters<'w, 's> = (Res<'w, Time>, Res<'w, AssetServer>, Commands<'w, 's>);
-    type Components<'a> = &'a Transform;
-
-    fn tick(
-        &mut self,
-        system_parameters: &mut Self::SystemParameters<'_, '_>,
-        components: <Self::Components<'_> as WorldQuery>::Item<'_>,
-    ) {
-        let (time, asset_server, commands) = system_parameters;
-        let transform = components;
-
-        self.timer.tick(time.delta());
-
-        if self.timer.just_finished() {
-            Self::create(
-                self.distance_from_last_plant,
-                transform.translation.xy(),
-                commands,
-                asset_server,
-            );
-        }
-    }
-}
-
 impl Ground {
+    pub fn grow(
+        mut grounds: Query<(&mut Ground, &Transform)>,
+        time: Res<Time>,
+        asset_server: Res<AssetServer>,
+        mut commands: Commands,
+    ) {
+        grounds.iter_mut().for_each(|(mut ground, transform)| {
+            ground.timer.tick(time.delta());
+
+            if ground.timer.just_finished() {
+                Self::create(
+                    ground.distance_from_last_plant,
+                    transform.translation.xy(),
+                    &mut commands,
+                    &asset_server,
+                );
+            }
+        });
+    }
+
     pub fn create(
         mut distance_from_last_plant: u16,
         mut translation: Vec2,

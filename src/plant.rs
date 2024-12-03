@@ -6,6 +6,49 @@ pub mod prelude {
     //pub use super::{Leaf, Tree};
 }
 
+// Out of curiosity, could I have one Plant struct, that has lots of optional structs that work with it? To create behaviour by composition?
+// I don't know. I may fall back to the ancient grow code for now.
+
+// This just marks a nodule as a plant.
+pub struct Plant;
+
+// Do we need this?
+pub struct Base;
+
+// Entities with this just kinda exist in the void perhaps? Used to create offshoots when something asks them to?
+// This is all really experimental...
+pub struct OffShoot {
+    length: usize,
+    ends: Vec<Entity>,
+}
+
+#[derive(Component)]
+pub struct WibblyGrass {}
+
+impl WibblyGrass {
+    // Do we want this?
+    pub fn grow(mut grass: Query<(&mut WibblyGrass)>) {
+        grass.par_iter_mut().for_each(|(mut grass)| {});
+    }
+
+    pub fn create(translation: Vec2, width: f32, terrain: &mut Terrain) {
+        terrain
+            .create(
+                NoduleConfig {
+                    depth: 1.,
+                    colour: [0.21, 0., 0.25],
+                    collision: false,
+                    ..default()
+                },
+                translation,
+            )
+            .mutate_component::<Sprite>(move |mut sprite| {
+                sprite.custom_size = Some(Vec2::new(width, 30.));
+            });
+    }
+}
+
+// IMPORTANT: I think I might abandon this... I kinda want grass that looks more similar to grass in rainworld. It would also be more performant.
 // Gets larger the more energy it has, so it can store more energy?
 // Also so dang simple that it can't really get scrambled lol. Other than the question stuff, but it doesn't matter really. It will just try again next frame.
 // Does energy have to be taken? Can you just take a bit, and let the rest pass?
@@ -17,6 +60,9 @@ pub struct Boulder {
     // Justification for scramble setting this to None. You could just check if the entity has the question component, to check for scramble.
     //action: BoulderAction,
     timer: EveryTime,
+
+    // The current direction it wants to move.
+    direction: bool,
 }
 
 // Since we deprecated collision questions, I think this can be removed.
@@ -28,13 +74,17 @@ pub struct Boulder {
 // }
 
 impl Boulder {
+    const DEBUG: bool = false;
+
     pub fn create(translation: Vec2, commands: &mut Commands, asset_server: &AssetServer) {
         const RADIUS: f32 = 30.;
 
         let mut rng = thread_rng();
 
         let energy_capacity = circle_to_energy(RADIUS);
-        info!(energy_capacity);
+        if Self::DEBUG {
+            info!(energy_capacity);
+        }
 
         commands.spawn((
             Self {
@@ -45,6 +95,8 @@ impl Boulder {
                     Duration::from_secs_f32(0.75),
                     Duration::from_secs_f32(rng.gen_range(0.0..0.75)),
                 ),
+
+                direction: rng.gen_bool(0.5),
             },
             Radius(RADIUS),
             SpriteBundle {
@@ -94,6 +146,7 @@ impl Boulder {
         colliders: &Query<(&Radius, &Transform)>,
         time_delta: Duration,
         mut commands: Commands,
+        gizmos: &GizmosLingering,
     ) {
         let mut rng = thread_rng();
 
@@ -101,14 +154,18 @@ impl Boulder {
             match self.energy / self.energy_capacity {
                 0.0..0.7 => {
                     // Move
-                    let motion_range_x = -radius..radius;
+                    let motion_range_x = if self.direction {
+                        1.0..radius
+                    } else {
+                        -radius..-1.0
+                    };
                     let motion_range_y = -radius..(radius / 2.);
 
                     let search_radius = radius * 3.;
 
                     //TODO: This could subtract from the radius in the distance squared calculation?
                     let overlap = -5.;
-                    let far = 100.;
+                    let far = 5.;
 
                     let mut motion = None;
                     let mut attempts_left = 50;
@@ -128,36 +185,66 @@ impl Boulder {
                         let mut not_too_close = true;
                         let mut not_too_far = false;
                         for colliding_entity in collisions.iter() {
-                            let (other_radius, other_transform) =
-                                colliders.get(*colliding_entity).unwrap();
-                            let distance_squared = distance_squared_between_edges(
+                            let (other_radius, other_translation) = {
+                                let (other_radius, other_transform) =
+                                    colliders.get(*colliding_entity).unwrap();
+
+                                (other_radius.0, other_transform.translation.xy())
+                            };
+
+                            let distance_between_edges = distance_between_edges(
                                 radius,
                                 translation + potential_motion,
-                                other_radius.0,
-                                other_transform.translation.xy(),
+                                other_radius,
+                                other_translation,
                             );
 
-                            if distance_squared == 0. {
-                                //info!("Too close!");
-                                //info!(distance_squared);
+                            if distance_between_edges == 0. {
+                                if Self::DEBUG {
+                                    //info!("Too close!");
+                                    //info!(distance_squared);
+                                }
+                                gizmos.add(Duration::from_secs(1), move |gizmos| {
+                                    gizmos.circle_2d(
+                                        other_translation,
+                                        other_radius * 0.8,
+                                        Color::srgb(1., 0., 1.),
+                                    );
+                                });
                                 not_too_close = false;
                                 break;
-                            } else {
-                                info!(distance_squared);
+                            } else if Self::DEBUG {
+                                //info!(distance_between_edges);
+                                gizmos.add(Duration::from_secs(1), move |gizmos| {
+                                    gizmos.circle_2d(
+                                        other_translation,
+                                        other_radius,
+                                        Color::srgb(1., 0., 0.),
+                                    );
+                                });
                             }
 
-                            //info!("Does this happen?");
-
-                            if distance_squared < squared(far) {
+                            if distance_between_edges < far {
+                                if Self::DEBUG {
+                                    gizmos.add(Duration::from_secs(1), move |gizmos| {
+                                        gizmos.circle_2d(
+                                            other_translation,
+                                            other_radius * 0.6,
+                                            Color::srgb(1., 1., 0.),
+                                        );
+                                    });
+                                }
                                 not_too_far = true;
                             }
                         }
 
                         if not_too_close && not_too_far {
-                            info!("Success!");
+                            if Self::DEBUG {
+                                //info!("Success!");
+                            }
+
                             motion = Some(potential_motion);
                         } else {
-                            //info!("{}", question.translation - transform.translation.xy());
                             attempts_left -= 1;
                         }
                     }
@@ -169,6 +256,11 @@ impl Boulder {
                                 transform.translation.y += motion.y;
                             },
                         );
+                    } else {
+                        if Self::DEBUG {
+                            info!("Failure!");
+                        }
+                        self.direction = !self.direction;
                     }
                 }
                 0.7..1.0 => {
@@ -265,7 +357,9 @@ impl Boulder {
         colliders: Query<(&Radius, &Transform)>,
         time: Res<Time>,
         mut commands: ParallelCommands,
+        gizmos: Res<GizmosLingering>,
     ) {
+        //TODO: Remove gizmos and make this parallel.
         boulders
             .par_iter_mut()
             .for_each(|(entity, mut boulder, mut transform, radius)| {
@@ -278,6 +372,7 @@ impl Boulder {
                         &colliders,
                         time.delta(),
                         commands,
+                        &gizmos,
                     );
                 });
             });

@@ -8,7 +8,7 @@ pub mod prelude {
     pub type ColliderGrid = super::ColliderGrid<GRID_WIDTH, GRID_HEIGHT>;
 
     pub use super::{
-        collide, distance_squared_between_edges, CollisionQuestion as CollisionQuestionDeprecated,
+        collide, distance_between_edges, CollisionQuestion as CollisionQuestionDeprecated,
         CollisionSensor as CollisionSensorDeprecated,
         DistanceSquaredBetweenEdgesQuestion as DistanceSquaredBetweenEdgesQuestionDeprecated,
         Radius, GRID_CELL_SIZE, GRID_HEIGHT, GRID_ORIGIN, GRID_WIDTH,
@@ -416,12 +416,19 @@ pub fn check_collision(
     other_radius: f32,
     other_translation: Vec2,
 ) -> bool {
+    // let distance_squared = translation.distance_squared(other_translation);
+    // let radii_sum = radius + other_radius;
+    // let radii_difference = (radius - other_radius).abs();
+
+    // radii_difference * radii_difference <= distance_squared
+    //     && distance_squared <= radii_sum * radii_sum
+
+    // I still am bad at math and physics... ChatGPT has helped me as always:
+
     let distance_squared = translation.distance_squared(other_translation);
     let radii_sum = radius + other_radius;
-    let radii_difference = (radius - other_radius).abs();
 
-    radii_difference * radii_difference <= distance_squared
-        && distance_squared <= radii_sum * radii_sum
+    distance_squared <= radii_sum * radii_sum
 }
 
 pub fn collide(
@@ -549,27 +556,44 @@ pub fn collide(
         });
 }
 
-pub fn distance_squared_between_edges(
+pub fn distance_between_edges(
     radius: f32,
     translation: Vec2,
     other_radius: f32,
     other_translation: Vec2,
 ) -> f32 {
-    let distance_squared = translation.distance_squared(other_translation);
-    // Should this be squared(radius + other_radius) instead???
-    let sum_of_squared_radii = squared(radius + other_radius);
-    let sum_of_squared_radii = squared(radius) + squared(other_radius);
+    let distance = translation.distance(other_translation);
+    let sum_of_radii = radius + other_radius;
 
-    if distance_squared < sum_of_squared_radii {
+    if distance < sum_of_radii {
         0.
     } else {
-        let distance_squared_between_edges = distance_squared - sum_of_squared_radii;
-        distance_squared_between_edges
+        distance - sum_of_radii
     }
-
-    // Old code. The above code was what chatgpt thinks is improved. I did this cause I don't know how to search the internet yet.
-    // let distance_squared_between_edges =
-    //     distance_squared - (radius * radius) - (other_radius * other_radius);
-
-    // distance_squared_between_edges
 }
+
+// Abandoned, as I couldn't get it to work...
+// pub fn distance_squared_between_edges(
+//     radius: f32,
+//     translation: Vec2,
+//     other_radius: f32,
+//     other_translation: Vec2,
+// ) -> f32 {
+//     let distance_squared = translation.distance_squared(other_translation);
+//     // Should this be squared(radius + other_radius) instead???
+//     let sum_of_squared_radii = squared(radius + other_radius);
+//     //let sum_of_squared_radii = squared(radius) + squared(other_radius);
+
+//     if distance_squared < sum_of_squared_radii {
+//         0.
+//     } else {
+//         let distance_squared_between_edges = distance_squared - sum_of_squared_radii;
+//         distance_squared_between_edges
+//     }
+
+//     // Old code. The above code was what chatgpt thinks is improved. I did this cause I don't know how to search the internet yet.
+//     // let distance_squared_between_edges =
+//     //     distance_squared - (radius * radius) - (other_radius * other_radius);
+
+//     // distance_squared_between_edges
+// }

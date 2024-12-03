@@ -3,7 +3,7 @@ use core::f32;
 pub use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{circle_to_energy, ellipse_to_energy, Sun};
+    pub use super::{circle_to_energy, ellipse_to_energy, AbsorbSun, Energy, Sun};
 }
 
 pub fn ellipse_to_energy(x_radius: f32, y_radius: f32) -> f32 {
@@ -16,6 +16,15 @@ pub fn circle_to_energy(radius: f32) -> f32 {
     // See ellipse_to_energy.
     (radius * radius) / 225.
 }
+
+// The entity should have the Energy component.
+// If the entity somehow doesn't exist, or doesn't have the component, then Idk what should happen.
+#[derive(Component)]
+pub struct AbsorbSun(pub Entity);
+
+// It is up to the plant to have an energy limit.
+#[derive(Component)]
+pub struct Energy(pub f32);
 
 #[derive(Component)]
 pub struct Sun {

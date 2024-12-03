@@ -13,10 +13,7 @@
 
 use std::ops::Range;
 
-use bevy::{
-    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
-    ecs::system::EntityCommands,
-};
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 
 mod collision;
 mod events;
@@ -29,7 +26,9 @@ mod time;
 mod tree;
 
 mod prelude {
-    pub use super::{squared, Action, Grower, MutateComponent};
+    pub use super::{
+        squared, Action, GizmosLingering, Grower, MutateComponent, NoduleConfig, Terrain,
+    };
     pub use crate::{
         collision::prelude::*, ground::prelude::*, particle, player::prelude::*, sun::prelude::*,
         time::prelude::*, tree::prelude::*,
@@ -37,9 +36,10 @@ mod prelude {
     pub use bevy::{
         ecs::{
             query::{QueryData, WorldQuery},
-            system::SystemParam,
+            system::{EntityCommands, SystemParam},
         },
         prelude::*,
+        utils::Parallel,
     };
     pub use derive_more::{Deref, DerefMut};
     pub use leafwing_input_manager::prelude::*;
@@ -65,8 +65,8 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            //FrameTimeDiagnosticsPlugin,
-            //LogDiagnosticsPlugin::default(),
+            FrameTimeDiagnosticsPlugin,
+            LogDiagnosticsPlugin::default(),
             InputManagerPlugin::<Action>::default(),
             RunEveryPlugin,
         ))
@@ -74,11 +74,12 @@ fn main() {
         .add_systems(
             Update,
             (
+                display_lingering_gizmos,
                 debug_move_camera,
                 //player::debug_collisions,
                 //move_players,
                 plant::Boulder::update_system,
-                Ground::grower,
+                //Ground::grower,
                 Tree::grower,
                 Leaf::grower,
                 Sun::update,
@@ -110,6 +111,7 @@ fn main() {
         //.add_systems_that_run_every(Duration::from_secs_f64(1. / 5.), sync_player_transforms)
         //.add_systems_that_run_every(Duration::from_secs_f32(1.), || info!("blah"))
         .init_resource::<ActionState<Action>>()
+        .init_resource::<GizmosLingering>()
         .insert_resource(Action::default_input_map())
         .insert_resource(ColliderGrid::new(GRID_ORIGIN))
         .run();
@@ -118,11 +120,11 @@ fn main() {
 // This does not contain the translation, as that having a default does not make sense.
 // This is only for properties that usually stay the same from one nodule to another.
 #[derive(Clone)]
-struct NoduleConfig {
-    depth: f32,
-    diameter: f32,
-    colour: [f32; 3],
-    collision: bool,
+pub struct NoduleConfig {
+    pub depth: f32,
+    pub diameter: f32,
+    pub colour: [f32; 3],
+    pub collision: bool,
 }
 
 impl Default for NoduleConfig {
@@ -136,7 +138,14 @@ impl Default for NoduleConfig {
     }
 }
 
-struct LineConfig<'a> {
+// Default generics must be specified in expressions.
+// This solves that in a very stupid way.
+type LineConfigDefault = LineConfig;
+
+struct LineConfig<F = fn(LineCustomiserInfo)>
+where
+    F: FnMut(LineCustomiserInfo),
+{
     spacing: Vec2,
 
     // Offset y translates y and creeps randomly up and down.
@@ -150,18 +159,20 @@ struct LineConfig<'a> {
     jitter_x: Range<f32>,
     jitter_y: Range<f32>,
 
-    // Why isn't this one range???
-    height: u32,
+    // How many nodules we shall spawn in a downwards direction.
+    // 1 means there will be 1 nodule.
     depth: u32,
+    // Offsets all nodules this amount upwards.
+    upwards_offset: f32,
 
     // Idea: Easing
     // Slowly pulls in the clamp (perhaps via lerp?) so that the nodules finish exactly (or inexactly) at the end point!
 
-    // Temp and easy for seeds. TODO: I know I should replace it eventually.
-    store_middle: Option<&'a mut Vec<Vec2>>,
+    // Runs a function for every nodule spawned.
+    customiser: Option<F>,
 }
 
-impl<'a> Default for LineConfig<'a> {
+impl<F: FnMut(LineCustomiserInfo)> Default for LineConfig<F> {
     fn default() -> Self {
         Self {
             spacing: Vec2::splat(20.),
@@ -174,12 +185,23 @@ impl<'a> Default for LineConfig<'a> {
             jitter_x: -5.0..5.0,
             jitter_y: -5.0..5.0,
 
-            height: 0,
-            depth: 0,
+            depth: 1,
+            upwards_offset: 0.,
 
-            store_middle: None,
+            customiser: None,
         }
     }
+}
+
+struct LineCustomiserInfo<'t, 'c, 'a, 'w, 's> {
+    terrain: &'t mut Terrain<'c, 'a, 'w, 's>,
+
+    // The mathematical point on the line we are currently at.
+    point_translation: Vec2,
+    // How many nodules across are we, and how many nodules away from the top are we?
+    nodule_translation: UVec2,
+    // the actual current translation in world coordinates.
+    translation: Vec2,
 }
 
 #[derive(Copy, Clone)]
@@ -188,17 +210,17 @@ struct LineEnd {
     offset_y: f32,
 }
 
-struct Terrain<'c, 'a, 'w, 's> {
-    rng: ThreadRng,
+pub struct Terrain<'c, 'a, 'w, 's> {
+    pub rng: ThreadRng,
 
-    commands: &'c mut Commands<'w, 's>,
-    asset_server: &'a AssetServer,
+    pub commands: &'c mut Commands<'w, 's>,
+    pub asset_server: &'a AssetServer,
 }
 
 impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
     const DEBUG: bool = false;
 
-    fn create(&mut self, config: NoduleConfig, translation: Vec2) -> EntityCommands {
+    pub fn create(&mut self, config: NoduleConfig, translation: Vec2) -> EntityCommands {
         let mut entity_commands = self.commands.spawn(SpriteBundle {
             texture: self.asset_server.load("nodule.png"),
             transform: Transform::from_translation(Vec3::new(
@@ -254,11 +276,11 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
     }
 
     // Consider switching from nodule config to a closure that returns a nodule config with parameters for x and y and such like.
-    fn line(
+    fn line<F: FnMut(LineCustomiserInfo)>(
         &mut self,
         from: LineEnd,
         to: Vec2,
-        mut config: LineConfig,
+        mut config: LineConfig<F>,
         nodule: NoduleConfig,
     ) -> LineEnd {
         let mut to = LineEnd {
@@ -286,12 +308,8 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
         // I've replaced it with distance_x, but we should make certain that this is now correct.
         let end = (distance_x / config.spacing.x).round() as u32;
 
-        if let Some(ref mut middle) = config.store_middle {
-            middle.reserve(end as usize);
-        }
-
-        for x in 0..end {
-            let x = x as f32 * config.spacing.x;
+        for nodule_x in 0..end {
+            let x = nodule_x as f32 * config.spacing.x;
             let y = x * gradient;
 
             if Self::DEBUG {
@@ -327,31 +345,29 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
 
             let roughness = self.rng.gen_range_allow_empty(config.roughness.clone());
 
-            let mut spawner = |translation: f32, middle: &mut Option<&mut Vec<Vec2>>| {
+            for depth in 0..config.depth {
                 let jitter = Vec2::new(
                     self.rng.gen_range_allow_empty(config.jitter_x.clone()),
                     self.rng.gen_range_allow_empty(config.jitter_y.clone()),
                 );
 
-                let translation = Vec2::new(x, y + to.offset_y + translation + roughness)
-                    + from.translation
+                let translation = Vec2::new(
+                    x,
+                    y + to.offset_y + (depth as f32 * -config.spacing.y) + roughness,
+                ) + from.translation
                     + jitter;
 
-                if let Some(middle) = middle {
-                    middle.push(translation);
+                if let Some(customiser) = &mut config.customiser {
+                    customiser(LineCustomiserInfo {
+                        terrain: self,
+
+                        point_translation: Vec2::new(x, y),
+                        nodule_translation: UVec2::new(nodule_x, depth),
+                        translation,
+                    });
                 }
 
                 self.create(nodule.clone(), translation);
-            };
-
-            for height in 0..config.height {
-                spawner((height + 1) as f32 * config.spacing.y, &mut None);
-            }
-
-            spawner(0.0, &mut config.store_middle);
-
-            for depth in 0..config.depth {
-                spawner((depth + 1) as f32 * -config.spacing.y, &mut None);
             }
         }
 
@@ -371,7 +387,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             offset_y: 0.,
         },
         Vec2::new(-20_000., 0.),
-        LineConfig {
+        LineConfigDefault {
             depth: 100,
 
             roughness: -500.0..500.0,
@@ -382,27 +398,28 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     //MARK: Forest?
     // TODO: Add caves and other points of interest. Also plants!!!
-    let mut forest_surface = vec![];
     let forest = terrain.line(
         mountain,
         Vec2::new(-5_000., 0.),
         LineConfig {
             depth: 50,
-            store_middle: Some(&mut forest_surface),
+            customiser: Some(|info: LineCustomiserInfo<'_, '_, '_, '_, '_>|{
+                info!("{}", info.nodule_translation);
+            }),
             ..default()
         },
         NoduleConfig { ..default() },
     );
 
-    for translation in forest_surface {
-        if rng.gen_bool(0.01) {
-            plant::Boulder::create(
-                translation + Vec2::new(0., 40.),
-                terrain.commands,
-                &asset_server,
-            );
-        }
-    }
+    // for translation in forest_surface {
+    //     if rng.gen_bool(0.1) {
+    //         plant::Boulder::create(
+    //             translation + Vec2::new(0., 40.),
+    //             terrain.commands,
+    //             &asset_server,
+    //         );
+    //     }
+    // }
 
     //MARK: Lake
     //water
@@ -413,7 +430,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             offset_y: 0.,
         },
         Vec2::new(500., water_y),
-        LineConfig {
+        LineConfigDefault {
             offset_y_change: 0.0..0.0,
             ..default()
         },
@@ -435,7 +452,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     terrain.line(
         forest,
         Vec2::new(-500., -1500.),
-        LineConfig {
+        LineConfigDefault {
             depth: 50,
             ..default()
         },
@@ -472,7 +489,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     start_x + (x + 1) as f32 * increment_x + y as f32 * increment_x,
                     start_y + y as f32 * increment_y + y_to_from.1,
                 ),
-                LineConfig {
+                LineConfigDefault {
                     spacing: Vec2::splat(30.),
                     depth: thickness,
                     offset_y_change: 0.0..0.0,
@@ -651,6 +668,7 @@ impl<Rng: RngCore> RngExtension for Rng {
 }
 
 //MARK: MutateComponent
+// this can be removed in 0.15
 pub trait MutateComponent {
     fn mutate_component<T: Component>(&mut self, f: impl FnOnce(Mut<T>) + Send + Sync + 'static);
 }
@@ -662,3 +680,65 @@ impl MutateComponent for EntityCommands<'_> {
         });
     }
 }
+
+#[derive(Resource, Default)]
+pub struct GizmosLingering(
+    Parallel<(
+        Vec<usize>,
+        Vec<(Duration, Box<dyn Fn(&mut Gizmos) + Send + Sync>)>,
+    )>,
+);
+
+impl GizmosLingering {
+    pub fn add(&self, duration: Duration, f: impl Fn(&mut Gizmos) + Send + Sync + 'static) {
+        self.0.borrow_local_mut().1.push((duration, Box::new(f)));
+    }
+}
+
+fn display_lingering_gizmos(
+    mut gizmos_lingering: ResMut<GizmosLingering>,
+    mut gizmos: Gizmos,
+    time: Res<Time>,
+) {
+    gizmos_lingering
+        .0
+        .iter_mut()
+        .for_each(|(gizmos_to_remove, gizmos_lingering)| {
+            gizmos_lingering
+                .iter_mut()
+                .enumerate()
+                .for_each(|(index, gizmos_lingering)| {
+                    gizmos_lingering.0 = gizmos_lingering.0.saturating_sub(time.delta());
+                    if gizmos_lingering.0.is_zero() {
+                        gizmos_to_remove.push(index)
+                    } else {
+                        gizmos_lingering.1(&mut gizmos);
+                    }
+                });
+
+            // Makes removing indices easy by removing them in the reverse order!
+            gizmos_to_remove.sort_unstable();
+
+            gizmos_to_remove.iter().rev().for_each(|index| {
+                // The error is incorrect.
+                #[allow(unused_must_use)]
+                gizmos_lingering.swap_remove(*index);
+            });
+
+            gizmos_to_remove.clear();
+        });
+}
+
+pub trait CompileTimeOption<T> {
+    fn get(&self) -> Option<&T>;
+}
+
+impl<T> CompileTimeOption<T> for T {
+    fn get(&self) -> Option<&T> {
+        Some(self)
+    }
+}
+
+// impl<T> CompileTimeOption<T> for () {
+
+// }
