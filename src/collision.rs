@@ -8,7 +8,8 @@ pub mod prelude {
     pub type ColliderGrid = super::ColliderGrid<GRID_WIDTH, GRID_HEIGHT>;
 
     pub use super::{
-        collide, distance_between_edges, CollisionQuestion as CollisionQuestionDeprecated,
+        check_collision, collide, distance_between_edges,
+        CollisionQuestion as CollisionQuestionDeprecated,
         CollisionSensor as CollisionSensorDeprecated,
         DistanceSquaredBetweenEdgesQuestion as DistanceSquaredBetweenEdgesQuestionDeprecated,
         Radius, GRID_CELL_SIZE, GRID_HEIGHT, GRID_ORIGIN, GRID_WIDTH,

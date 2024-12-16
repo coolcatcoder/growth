@@ -16,8 +16,7 @@
 use std::ops::Range;
 
 use bevy::{
-    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
-    window::PrimaryWindow,
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin}, ecs::query::QueryFilter, window::PrimaryWindow
 };
 
 mod collision;
@@ -68,8 +67,8 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            FrameTimeDiagnosticsPlugin,
-            LogDiagnosticsPlugin::default(),
+            //FrameTimeDiagnosticsPlugin,
+            //LogDiagnosticsPlugin::default(),
             InputManagerPlugin::<Action>::default(),
             RunEveryPlugin,
         ))
@@ -77,6 +76,13 @@ fn main() {
         .add_systems(
             Update,
             (
+                TerrainLine::generate,
+                TerrainLine::validate,
+                TerrainLine::debug,
+                TerrainPoint::select,
+                TerrainPoint::add,
+                TerrainPoint::remove,
+                TerrainPoint::debug,
                 update_cursor_translation,
                 particle::Chain::solve,
                 plant::WibblyGrass::sway,
@@ -639,6 +645,9 @@ pub enum Action {
     Debug,
 
     AddPoint,
+    RemovePoint,
+    CreateOrSelectLineMode,
+    Select,
 }
 
 impl Actionlike for Action {
@@ -658,7 +667,16 @@ impl Action {
             .with_dual_axis(Self::Move, VirtualDPad::wasd())
             .with_axis(Self::Zoom, MouseScrollAxis::Y)
             .with(Self::Debug, KeyCode::KeyF)
-            .with(Self::AddPoint, ButtonlikeChord::from_single(MouseButton::Left).with(KeyCode::KeyQ))
+            .with(
+                Self::AddPoint,
+                ButtonlikeChord::from_single(MouseButton::Left).with(KeyCode::KeyQ),
+            )
+            .with(
+                Self::RemovePoint,
+                ButtonlikeChord::from_single(MouseButton::Left).with(KeyCode::KeyE),
+            )
+            .with(Self::CreateOrSelectLineMode, KeyCode::KeyR)
+            .with(Self::Select, MouseButton::Left)
     }
 }
 
@@ -711,11 +729,209 @@ pub fn update_cursor_translation(
     }
 }
 
+/// A point that can be used in terrain lines.
+#[derive(Component, Default)]
+pub struct TerrainPoint {
+    selected: bool,
+}
+
+impl TerrainPoint {
+    const RADIUS: f32 = 50.;
+
+    /// Adds a terrain point where the user clicked.
+    fn add(
+        actions: Res<ActionState<Action>>,
+        translation: Res<CursorWorldTranslation>,
+        mut commands: Commands,
+    ) {
+        if actions.just_pressed(&Action::AddPoint) {
+            commands.spawn((
+                TerrainPoint::default(),
+                Transform::from_translation(Vec3::new(translation.0.x, translation.0.y, 0.)),
+            ));
+        }
+    }
+
+    /// Removes all terrain points the mouse is currently in, whenever the mouse button and key are held down.
+    fn remove(
+        points: Query<(Entity, &Transform), With<TerrainPoint>>,
+        actions: Res<ActionState<Action>>,
+        cursor_translation: Res<CursorWorldTranslation>,
+        mut commands: Commands,
+    ) {
+        if actions.pressed(&Action::RemovePoint) {
+            let mut points_clicked = vec![];
+            points.iter().for_each(|(entity, transform)| {
+                if check_collision(
+                    10.,
+                    cursor_translation.0,
+                    Self::RADIUS,
+                    transform.translation.xy(),
+                ) {
+                    points_clicked.push(entity);
+                }
+            });
+
+            points_clicked.into_iter().for_each(|entity| {
+                if let Some(mut entity) = commands.get_entity(entity) {
+                    entity.despawn();
+                }
+            });
+        }
+    }
+
+    /// Selects points. While the key is held down:
+    /// If you select 2 points, it will form a terrain line between them, if there is one already, it will select it.
+    fn select(
+        mut points: Query<(Entity, &Transform, &mut TerrainPoint)>,
+        lines: Query<&TerrainLine>,
+        actions: Res<ActionState<Action>>,
+        cursor_translation: Res<CursorWorldTranslation>,
+        mut commands: Commands,
+    ) {
+        if actions.pressed(&Action::CreateOrSelectLineMode) {
+            if !actions.just_pressed(&Action::Select) {
+                return;
+            }
+
+            // Get all points selected. For any clicked on, and not selected, we select them.
+            let mut points_selected = vec![];
+            points
+                .iter_mut()
+                .for_each(|(entity, transform, mut point)| {
+                    if point.selected
+                        || check_collision(
+                            10.,
+                            cursor_translation.0,
+                            Self::RADIUS,
+                            transform.translation.xy(),
+                        )
+                    {
+                        point.selected = true;
+                        points_selected.push((entity, point));
+                    }
+                });
+
+            if points_selected.len() == 2 {
+                points_selected[0].1.selected = false;
+                points_selected[1].1.selected = false;
+
+                if lines.iter().any(|line| {
+                    // Both line points equal either of the selected points.
+                    (line.point_1 == points_selected[0].0 || line.point_1 == points_selected[1].0)
+                        && (line.point_2 == points_selected[0].0
+                            || line.point_2 == points_selected[1].0)
+                }) {
+                    info!("TODO: Select line.");
+                } else {
+                    info!("Created a line!");
+                    commands.spawn(TerrainLine::new((
+                        points_selected[0].0,
+                        points_selected[1].0,
+                    )));
+                }
+            }
+        } else {
+            points.iter_mut().for_each(|(_, _, mut point)| {
+                point.selected = false;
+            });
+        }
+    }
+
+    /// Highlights the terrain points in red, for easy debugging.
+    fn debug(points: Query<(&TerrainPoint, &Transform)>, mut gizmos: Gizmos) {
+        points.iter().for_each(|(point, transform)| {
+            let colour = if point.selected {
+                Color::srgb(0.5, 0., 0.)
+            } else {
+                Color::srgb(1., 0., 0.)
+            };
+
+            gizmos.circle_2d(transform.translation.xy(), Self::RADIUS, colour);
+        });
+    }
+}
+
+/// Anything generated by terrain.
+#[derive(Component)]
+struct BelongsToTerrain(Entity);
+
 //MARK: TerrainLine
+/// A bunch of circles that look like terrain hopefully.
 #[derive(Component)]
 pub struct TerrainLine {
     point_1: Entity,
     point_2: Entity,
+
+    // Should the line (re)generate everything?
+    generate: bool,
+}
+
+impl TerrainLine {
+    /// Fills in all the defaults automatically. Only requires the points.
+    fn new(points: (Entity, Entity)) -> Self {
+        Self {
+            point_1: points.0,
+            point_2: points.1,
+
+            generate: true,
+        }
+    }
+
+    /// Generates the terrain, and removes all previously generated terrain.
+    fn generate(mut lines: Query<(Entity, &mut Self)>, generated: Query<(Entity, &BelongsToTerrain)>, mut commands: Commands) {
+        lines.iter_mut().for_each(|(line_entity, mut line)| {
+            if line.generate {
+                line.generate = false;
+
+                // Despawn all generated entities related to this line.
+                generated.iter().for_each(|(generated_entity, generated)| {
+                    if line_entity == generated.0 {
+                        commands.entity(generated_entity).despawn();
+                    }
+                });
+
+                info!("TODO: Generate.");
+
+                info!("Generated a line!");
+            }
+        });
+    }
+
+    /// Deletes any lines that are missing points.
+    fn validate(lines: Query<(Entity, &Self)>, generated: Query<(Entity, &BelongsToTerrain)>, mut commands: Commands) {
+        lines.iter().for_each(|(entity, line)| {
+            if commands.get_entity(line.point_1).is_none() || commands.get_entity(line.point_2).is_none() {
+                commands.entity(entity).despawn();
+                // Despawn all generated entities related to this line.
+                generated.iter().for_each(|(generated_entity, generated)| {
+                    if entity == generated.0 {
+                        commands.entity(generated_entity).despawn();
+                    }
+                });
+                info!("Destroyed a line!");
+            }
+        });
+    }
+
+    /// Displays debug info about the line, such as the center, and what the limits are.
+    fn debug(lines: Query<&Self>, points: Query<&Transform>, mut gizmos: Gizmos) {
+        lines.iter().for_each(|line| {
+            let Ok(point_1) = points.get(line.point_1) else {
+                return;
+            };
+
+            let Ok(point_2) = points.get(line.point_2) else {
+                return;
+            };
+
+            gizmos.line_2d(
+                point_1.translation.xy(),
+                point_2.translation.xy(),
+                Color::srgb(0.0, 1.0, 0.0),
+            );
+        });
+    }
 }
 
 pub fn squared(value: f32) -> f32 {
