@@ -1,6 +1,7 @@
 use bevy::ecs::system::EntityCommands;
 
 pub use crate::prelude::*;
+use crate::LineCustomiserInfo;
 
 pub mod prelude {
     //pub use super::{Leaf, Tree};
@@ -26,25 +27,144 @@ pub struct OffShoot {
 pub struct WibblyGrass {}
 
 impl WibblyGrass {
-    // Do we want this?
-    pub fn grow(mut grass: Query<(&mut WibblyGrass)>) {
-        grass.par_iter_mut().for_each(|(mut grass)| {});
+    const REST_Y: f32 = 120.;
+    const DETECTION_DISTANCE: f32 = 100.;
+
+    pub fn sway(
+        grass: Query<(&particle::Chain, &Transform), With<WibblyGrass>>,
+        players: Query<&Transform, With<Player>>,
+        transforms: Query<&Transform>,
+        time: Res<Time>,
+        commands: ParallelCommands,
+    ) {
+        let delta = time.delta_seconds();
+
+        grass.par_iter().for_each(|(chain, anchor_transform)| {
+            let mut closest_player: Option<(f32, Vec2)> = None;
+            players.iter().for_each(|player_transform| {
+                let distance_squared = player_transform
+                    .translation
+                    .xy()
+                    .distance_squared(anchor_transform.translation.xy());
+
+                if distance_squared < squared(Self::DETECTION_DISTANCE) {
+                    if let Some(closest_player) = &mut closest_player {
+                        if distance_squared < closest_player.0 {
+                            *closest_player = (distance_squared, player_transform.translation.xy());
+                        }
+                    } else {
+                        closest_player =
+                            Some((distance_squared, player_transform.translation.xy()));
+                    }
+                }
+            });
+
+            if let Some(closest_player) = closest_player {
+                commands.command_scope(move |mut commands| {
+                    commands
+                        .entity(chain.target.unwrap())
+                        .mutate_component::<Transform>(move |mut transform| {
+                            let mut translation = transform.translation.xy();
+                            let direction = (closest_player.1 - translation).normalize_or_zero();
+                            translation += direction * 100. * delta;
+                            transform.translation.x = translation.x;
+                            transform.translation.y = translation.y;
+                        });
+                });
+            } else {
+                let rest_translation =
+                    anchor_transform.translation.xy() + Vec2::new(0., Self::REST_Y);
+                commands.command_scope(move |mut commands| {
+                    commands
+                        .entity(chain.target.unwrap())
+                        .mutate_component::<Transform>(move |mut transform| {
+                            let mut translation = transform.translation.xy();
+                            let direction = (rest_translation - translation).normalize_or_zero();
+                            translation += direction * 100. * delta;
+                            transform.translation.x = translation.x;
+                            transform.translation.y = translation.y;
+                        });
+                });
+            }
+        });
     }
 
-    pub fn create(translation: Vec2, width: f32, terrain: &mut Terrain) {
-        terrain
-            .create(
-                NoduleConfig {
-                    depth: 1.,
-                    colour: [0.21, 0., 0.25],
-                    collision: false,
-                    ..default()
-                },
-                translation,
-            )
-            .mutate_component::<Sprite>(move |mut sprite| {
-                sprite.custom_size = Some(Vec2::new(width, 30.));
-            });
+    pub fn create<const X: i32, const WIDTH: u16>(info: LineCustomiserInfo) -> bool {
+        if info.nodule_translation.y == 0 && (info.translation.x - X as f32).abs() < 60. {
+            info
+                .terrain
+                .create(
+                    NoduleConfig {
+                        depth: 1.,
+                        colour: [0.21, 0., 0.25],
+                        collision: false,
+                        ..default()
+                    },
+                    info.translation,
+                )
+                .mutate_component::<Sprite>(move |mut sprite| {
+                    sprite.custom_size = Some(Vec2::new(WIDTH as f32, 30.));
+                });
+
+            for x in 0..5 {
+                let x = x as f32 * 10. - (WIDTH as f32 / 2.);
+
+                let mut links = Vec::with_capacity(15);
+                for y in 1..=15 {
+                    let translation = info.translation + Vec2::new(x, y as f32 * 5.);
+
+                    let link = info
+                        .terrain
+                        .create(
+                            NoduleConfig {
+                                depth: 1.,
+                                colour: [0.21, 0., 0.25],
+                                collision: false,
+                                diameter: 5.,
+                                ..default()
+                            },
+                            translation,
+                        )
+                        .id();
+
+                    links.push((5., link, translation));
+                }
+
+                let target = info
+                    .terrain
+                    .commands
+                    .spawn(TransformBundle::from_transform(
+                        Transform::from_translation(Vec3::new(
+                            info.translation.x,
+                            info.translation.y + Self::REST_Y,
+                            0.,
+                        )),
+                    ))
+                    .id();
+
+                let mut anchor = info.terrain.commands.spawn(TransformBundle::from_transform(
+                    Transform::from_translation(Vec3::new(
+                        info.translation.x + x,
+                        info.translation.y,
+                        0.,
+                    )),
+                ));
+
+                let anchor_id = anchor.id();
+
+                anchor.insert((
+                    particle::Chain {
+                        anchor: anchor_id,
+                        links,
+                        target: Some(target),
+                    },
+                    WibblyGrass {},
+                ));
+            }
+            true
+        } else {
+            false
+        }
     }
 }
 

@@ -10,7 +10,7 @@ members = ["procedural_macros"]
 
 [dependencies]
 procedural_macros = {path="procedural_macros"}
-bevy = { version = "0.14.2", default-features = false, features = [
+bevy = { version = "0.15", default-features = false, features = [
     "bevy_asset",
     "bevy_audio",
     "bevy_color",
@@ -35,7 +35,7 @@ bevy = { version = "0.14.2", default-features = false, features = [
 ] }
 log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
 rand = "0.8"
-leafwing-input-manager = "0.15"
+leafwing-input-manager = "0.16"
 thread_local = "1.1"
 rayon = "1.10"
 derive_more = { version = "1", features = ["deref", "deref_mut"] }

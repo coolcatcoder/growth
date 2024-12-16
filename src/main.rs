@@ -1,5 +1,6 @@
 #![allow(clippy::type_complexity)]
 #![warn(clippy::pedantic)]
+//#![deny(missing_docs)]
 // Not crimes.
 #![allow(clippy::wildcard_imports)]
 #![allow(clippy::needless_pass_by_value)]
@@ -10,6 +11,7 @@
 #![allow(incomplete_features)]
 // Unstable features:
 #![feature(generic_const_exprs)]
+#![feature(maybe_uninit_array_assume_init)]
 
 use std::ops::Range;
 
@@ -74,6 +76,11 @@ fn main() {
         .add_systems(
             Update,
             (
+                particle::Chain::solve,
+                plant::WibblyGrass::sway,
+                particle::DistanceConstraint::solve,
+                //player::debug_action,
+                particle::Verlet::system,
                 display_lingering_gizmos,
                 debug_move_camera,
                 //player::debug_collisions,
@@ -101,11 +108,13 @@ fn main() {
         //     PostUpdate,
         //     camera_follow.before(TransformSystem::TransformPropagate),
         // )
+        .add_systems_that_run_every(Duration::from_secs_f64(1. / 5.), particle::Verlet::collide)
+        .add_systems_that_run_every(Duration::from_secs_f64(1. / 5.), ColliderGrid::update)
         .add_systems_that_run_every(
             Duration::from_secs_f64(1. / 30.),
             // TODO: ColliderGrid::update is special, in the fact that an entity likely won't move more than a grid every frame,
             // so it doesn't have to update as often as we currently have it set.
-            (orb_follow, (ColliderGrid::update, collide).chain()),
+            collide,
         )
         // Maybe not...
         //.add_systems_that_run_every(Duration::from_secs_f64(1. / 5.), sync_player_transforms)
@@ -138,14 +147,11 @@ impl Default for NoduleConfig {
     }
 }
 
-// Default generics must be specified in expressions.
-// This solves that in a very stupid way.
+// A stupid solution, but it works.
+// TODO: Get rid of this eventually, as customisation becomes normal, and emptiness is weird.
 type LineConfigDefault = LineConfig;
 
-struct LineConfig<F = fn(LineCustomiserInfo)>
-where
-    F: FnMut(LineCustomiserInfo),
-{
+struct LineConfig<const L: usize = 0> {
     spacing: Vec2,
 
     // Offset y translates y and creeps randomly up and down.
@@ -168,11 +174,11 @@ where
     // Idea: Easing
     // Slowly pulls in the clamp (perhaps via lerp?) so that the nodules finish exactly (or inexactly) at the end point!
 
-    // Runs a function for every nodule spawned.
-    customiser: Option<F>,
+    // Runs functions for every nodule spawned until they return true.
+    customisers: [Option<fn(LineCustomiserInfo) -> bool>; L],
 }
 
-impl<F: FnMut(LineCustomiserInfo)> Default for LineConfig<F> {
+impl<const L: usize> Default for LineConfig<L> {
     fn default() -> Self {
         Self {
             spacing: Vec2::splat(20.),
@@ -188,7 +194,7 @@ impl<F: FnMut(LineCustomiserInfo)> Default for LineConfig<F> {
             depth: 1,
             upwards_offset: 0.,
 
-            customiser: None,
+            customisers: [None; L],
         }
     }
 }
@@ -197,6 +203,7 @@ struct LineCustomiserInfo<'t, 'c, 'a, 'w, 's> {
     terrain: &'t mut Terrain<'c, 'a, 'w, 's>,
 
     // The mathematical point on the line we are currently at.
+    // If you want this to be in world coordinates, make sure to add from to it.
     point_translation: Vec2,
     // How many nodules across are we, and how many nodules away from the top are we?
     nodule_translation: UVec2,
@@ -221,24 +228,18 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
     const DEBUG: bool = false;
 
     pub fn create(&mut self, config: NoduleConfig, translation: Vec2) -> EntityCommands {
-        let mut entity_commands = self.commands.spawn(SpriteBundle {
-            texture: self.asset_server.load("nodule.png"),
-            transform: Transform::from_translation(Vec3::new(
-                translation.x,
-                translation.y,
-                config.depth,
-            )),
-            sprite: Sprite {
-                color: Color::Srgba(Srgba::rgb(
-                    config.colour[0],
-                    config.colour[1],
-                    config.colour[2],
-                )),
-                custom_size: Some(Vec2::splat(config.diameter)),
-                ..default()
-            },
+        let mut entity_commands = self.commands.spawn((Transform::from_translation(Vec3::new(
+            translation.x,
+            translation.y,
+            config.depth,
+        )), Sprite {
+            image: self.asset_server.load("nodule.png"),
+            color: Color::srgb(config.colour[0],
+                             config.colour[1],
+                             config.colour[2],),
+            custom_size: Some(Vec2::splat(config.diameter)),
             ..default()
-        });
+        }));
 
         if config.collision {
             entity_commands.insert(Radius {
@@ -276,11 +277,11 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
     }
 
     // Consider switching from nodule config to a closure that returns a nodule config with parameters for x and y and such like.
-    fn line<F: FnMut(LineCustomiserInfo)>(
+    fn line<const L: usize>(
         &mut self,
         from: LineEnd,
         to: Vec2,
-        mut config: LineConfig<F>,
+        mut config: LineConfig<L>,
         nodule: NoduleConfig,
     ) -> LineEnd {
         let mut to = LineEnd {
@@ -357,15 +358,19 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
                 ) + from.translation
                     + jitter;
 
-                if let Some(customiser) = &mut config.customiser {
-                    customiser(LineCustomiserInfo {
-                        terrain: self,
+                config.customisers.iter_mut().for_each(|customiser| {
+                    if let Some(inner_customiser) = customiser.as_mut() {
+                        if inner_customiser(LineCustomiserInfo {
+                            terrain: self,
 
-                        point_translation: Vec2::new(x, y),
-                        nodule_translation: UVec2::new(nodule_x, depth),
-                        translation,
-                    });
-                }
+                            point_translation: Vec2::new(x, y),
+                            nodule_translation: UVec2::new(nodule_x, depth),
+                            translation,
+                        }) {
+                            *customiser = None;
+                        }
+                    }
+                });
 
                 self.create(nodule.clone(), translation);
             }
@@ -373,6 +378,48 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
 
         to
     }
+}
+
+#[derive(Default)]
+struct LinePlacer(Vec<(f32, fn(LineCustomiserInfo))>);
+
+impl LinePlacer {
+    fn add(&mut self, x: f32, customiser: fn(LineCustomiserInfo)) {
+        self.0.push((x, customiser));
+    }
+
+    fn tick(&mut self, info: LineCustomiserInfo) {
+        for index in (0..self.0.len()).rev() {
+            let (x, customiser) = &mut self.0[index];
+
+            if info.nodule_translation.y == 0 && (info.translation.x - *x).abs() < 60. {
+                customiser(LineCustomiserInfo {
+                    terrain: info.terrain,
+                    point_translation: info.point_translation,
+                    nodule_translation: info.nodule_translation,
+                    translation: info.translation,
+                });
+                self.0.swap_remove(index);
+            }
+        }
+    }
+}
+
+// Wraps everything with an option.
+// Hopefully safe.
+fn customisers<const L: usize>(
+    customisers: [fn(LineCustomiserInfo) -> bool; L],
+) -> [Option<fn(LineCustomiserInfo) -> bool>; L] {
+    let mut output =
+        [const { std::mem::MaybeUninit::<Option<fn(LineCustomiserInfo) -> bool>>::uninit() }; L];
+    customisers
+        .into_iter()
+        .enumerate()
+        .for_each(|(index, customiser)| {
+            output[index].write(Some(customiser));
+        });
+    // SAFETY: output and customisers are the same length.
+    unsafe { std::mem::MaybeUninit::array_assume_init(output) }
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -398,14 +445,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     //MARK: Forest?
     // TODO: Add caves and other points of interest. Also plants!!!
+    // let mut placer = LinePlacer::default();
+    // placer.add(-5_500., plant::WibblyGrass::create_experimental::<50>);
+
     let forest = terrain.line(
         mountain,
         Vec2::new(-5_000., 0.),
         LineConfig {
             depth: 50,
-            customiser: Some(|info: LineCustomiserInfo<'_, '_, '_, '_, '_>|{
-                info!("{}", info.nodule_translation);
-            }),
+            customisers: customisers([
+                plant::WibblyGrass::create::<-5_500, 50>,
+                plant::WibblyGrass::create::<-5_600, 50>,
+            ]),
             ..default()
         },
         NoduleConfig { ..default() },
@@ -512,19 +563,16 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let player = commands
         .spawn((
             Player,
-            SpriteBundle {
-                texture: asset_server.load("nodule.png"),
-                sprite: Sprite {
+            Transform::from_translation(Vec3::new(
+                player_translation.x,
+                player_translation.y + 90.,
+                1.,
+            )), Sprite {
+                    image: asset_server.load("nodule.png"),
                     color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
                     ..default()
                 },
-                transform: Transform::from_translation(Vec3::new(
-                    player_translation.x,
-                    player_translation.y + 90.,
-                    1.,
-                )),
-                ..default()
-            },
+            
             particle::Ticker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
             particle::Velocity(Vec2::new(0., -5.)),
             particle::StopOnCollision,
@@ -534,29 +582,36 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ))
         .id();
 
-    commands.spawn(Camera2dBundle { ..default() });
+    commands.spawn(Camera2d);
 
-    for i in 1..=10 {
-        commands.spawn((
-            AbilityOrb {
-                following: Some(player),
-                distance: 60. * i as f32,
-            },
-            SpriteBundle {
-                texture: asset_server.load("nodule.png"),
-                sprite: Sprite {
-                    color: Color::Srgba(Srgba::rgb(1.0, 1.0, 0.0)),
-                    custom_size: Some(Vec2::splat(15.)),
-                    ..default()
+    let mut target = player;
+    for i in 1..=50 {
+        target = commands
+            .spawn((
+                particle::DistanceConstraint {
+                    distance: 5.,
+                    target,
                 },
-                transform: Transform::from_translation(Vec3::new(
-                    player_translation.x,
-                    player_translation.y + 90. + (60. * i as f32),
-                    1.,
-                )),
-                ..default()
-            },
-        ));
+                AbilityOrb {
+                    following: Some(player),
+                    distance: 60. * i as f32,
+                },
+                
+                    
+                    Sprite {
+                        image: asset_server.load("nodule.png"),
+                        color: Color::Srgba(Srgba::rgb(1.0, 1.0, 0.0)),
+                        custom_size: Some(Vec2::splat(15.)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(
+                        player_translation.x,
+                        player_translation.y + 90. + (60. * i as f32),
+                        1.,
+                    )),
+                    
+            ))
+            .id();
     }
 }
 
@@ -584,6 +639,7 @@ pub trait Grower: Component + Sized {
 pub enum Action {
     Move,
     Zoom,
+    Debug,
 }
 
 impl Actionlike for Action {
@@ -592,7 +648,7 @@ impl Actionlike for Action {
         match self {
             Self::Move => InputControlKind::DualAxis,
             Self::Zoom => InputControlKind::Axis,
-            //_ => InputControlKind::Button,
+            _ => InputControlKind::Button,
         }
     }
 }
@@ -600,8 +656,9 @@ impl Actionlike for Action {
 impl Action {
     fn default_input_map() -> InputMap<Self> {
         InputMap::default()
-            .with_dual_axis(Self::Move, KeyboardVirtualDPad::WASD)
+            .with_dual_axis(Self::Move, VirtualDPad::wasd())
             .with_axis(Self::Zoom, MouseScrollAxis::Y)
+            .with(Self::Debug, KeyCode::KeyF)
     }
 }
 
@@ -609,6 +666,7 @@ fn debug_move_camera(
     time: Res<Time>,
     actions: Res<ActionState<Action>>,
     mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<Camera2d>>,
+    mut player: Query<&mut Transform, (With<Player>, Without<Camera2d>)>,
 ) {
     const MOVE_SPEED: f32 = 600.;
     const ZOOM_SPEED: f32 = 10.;
@@ -617,14 +675,17 @@ fn debug_move_camera(
 
     let movement = actions.clamped_axis_pair(&Action::Move).xy()
         * MOVE_SPEED
-        * time.delta_seconds()
+        * time.delta_secs()
         * camera.scale;
 
     transform.translation.x += movement.x;
     transform.translation.y += movement.y;
 
     camera.scale +=
-        actions.axis_data(&Action::Zoom).unwrap().value * ZOOM_SPEED * time.delta_seconds();
+        actions.axis_data(&Action::Zoom).unwrap().value * ZOOM_SPEED * time.delta_secs();
+
+    player.single_mut().translation.x = transform.translation.x;
+    player.single_mut().translation.y = transform.translation.y;
 }
 
 pub fn squared(value: f32) -> f32 {
@@ -670,14 +731,22 @@ impl<Rng: RngCore> RngExtension for Rng {
 //MARK: MutateComponent
 // this can be removed in 0.15
 pub trait MutateComponent {
-    fn mutate_component<T: Component>(&mut self, f: impl FnOnce(Mut<T>) + Send + Sync + 'static);
+    fn mutate_component<T: Component>(
+        &mut self,
+        f: impl FnOnce(Mut<T>) + Send + Sync + 'static,
+    ) -> &mut Self;
 }
 
 impl MutateComponent for EntityCommands<'_> {
-    fn mutate_component<T: Component>(&mut self, f: impl FnOnce(Mut<T>) + Send + Sync + 'static) {
+    fn mutate_component<T: Component>(
+        &mut self,
+        f: impl FnOnce(Mut<T>) + Send + Sync + 'static,
+    ) -> &mut Self {
         self.add(move |mut entity: EntityWorldMut| {
             f(entity.get_mut::<T>().unwrap());
         });
+
+        self
     }
 }
 

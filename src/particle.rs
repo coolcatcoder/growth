@@ -260,3 +260,263 @@ impl StopOnCollision {
         );
     }
 }
+
+#[derive(Default, Component)]
+pub struct Verlet {
+    previous_translation: Vec2,
+
+    acceleration: Vec2,
+}
+
+impl Verlet {
+    pub fn new(translation: Vec2) -> Self {
+        Self {
+            previous_translation: translation,
+            acceleration: Vec2::ZERO,
+        }
+    }
+
+    pub fn accelerate(&mut self, acceleration: Vec2) {
+        self.acceleration += acceleration;
+    }
+
+    /// This has been passed from code base to codebase. No documentation has survived.
+    fn update(&mut self, delta_time: f32, translation: &mut Vec2) {
+        let acceleration = self.acceleration * (delta_time * delta_time);
+        *translation = *translation + (*translation - self.previous_translation) + acceleration;
+
+        self.previous_translation = *translation;
+        self.acceleration = Vec2::ZERO;
+    }
+
+    pub fn system(mut particles: Query<(&mut Verlet, &mut Transform)>, time: Res<Time>) {
+        particles
+            .par_iter_mut()
+            .for_each(|(mut particle, mut transform)| {
+                particle.accelerate(Vec2::new(0., -10000.));
+
+                let mut translation = transform.translation.xy();
+                particle.update(time.delta_seconds(), &mut translation);
+                transform.translation.x = translation.x;
+                transform.translation.y = translation.y;
+            });
+    }
+
+    pub fn collide(
+        commands: ParallelCommands,
+        mut particles: Query<(Entity, &mut Verlet, &Transform)>,
+        //time: Res<Time>,
+        collider_grid: Res<ColliderGrid>,
+        colliders: Query<(&Radius, &Transform)>,
+    ) {
+        particles
+            .par_iter_mut()
+            .for_each(|(entity, mut particle, transform)| {
+                // TODO: Profile adding an if previous translation equals translation, then perhaps don't check for collisions?
+
+                if collider_grid.collides_with_any(
+                    transform.translation.xy(),
+                    15.,
+                    Some(entity),
+                    &colliders,
+                ) {
+                    info!("!");
+                    let previous_translation = particle.previous_translation;
+                    particle.previous_translation = transform.translation.xy();
+                    particle.accelerate(Vec2::new(0., 100000.));
+
+                    commands.command_scope(|mut commands| {
+                        commands
+                            .get_entity(entity)
+                            .unwrap()
+                            .mutate_component::<Transform>(move |mut transform| {
+                                transform.translation.x = previous_translation.x;
+                                transform.translation.y = previous_translation.y;
+                            });
+                    });
+                }
+            });
+    }
+}
+
+#[derive(Component)]
+pub struct DistanceConstraint {
+    pub distance: f32,
+    pub target: Entity,
+}
+
+// impl DistanceConstraint {
+//     pub fn solve(constraints: Query<(Entity, &DistanceConstraint, &Transform)>, transforms: Query<&Transform>, commands: ParallelCommands, time: Res<Time>) {
+//         constraints.par_iter().for_each(|(entity, constraint, transform)| {
+//             let mut translation = transform.translation.xy();
+//             let target_translation = transforms.get(constraint.target).unwrap().translation.xy();
+//             let direction = (translation - target_translation).normalize_or_zero();
+//             let distance = translation.distance(target_translation);
+
+//             // We move in distance inthe direction so we arrive at the tranform, we then move back to be at the desired distance.
+//             translation += direction * (distance - constraint.distance);
+
+//             commands.command_scope(|mut commands| {
+//                 commands.entity(entity).mutate_component::<Transform>(move |mut transform| {
+//                     transform.translation.x = translation.x;
+//                     transform.translation.y = translation.y;
+//                 });
+//             });
+//         });
+//     }
+// }
+
+impl DistanceConstraint {
+    pub fn solve(
+        constraints: Query<(Entity, &DistanceConstraint, &Transform)>,
+        transforms: Query<&Transform>,
+        commands: ParallelCommands,
+        time: Res<Time>,
+    ) {
+        // TODO: Work out if order matters.
+        constraints
+            .par_iter()
+            .for_each(|(entity, constraint, transform)| {
+                let mut translation = transform.translation.xy();
+                let target_translation =
+                    transforms.get(constraint.target).unwrap().translation.xy();
+
+                // Because I don't know math, and I don't know how to search the internet, this is written by chatgpt.
+                let distance = translation.distance(target_translation);
+                let distance_x = translation.x - target_translation.x;
+                let distance_y = translation.y - target_translation.y;
+                let unit_distance_x = distance_x / distance;
+                let unit_distance_y = distance_y / distance;
+                let scaled_distance_x = unit_distance_x * constraint.distance;
+                let scaled_distance_y = unit_distance_y * constraint.distance;
+
+                // We move in distance inthe direction so we arrive at the tranform, we then move back to be at the desired distance.
+                translation = Vec2::new(
+                    target_translation.x + scaled_distance_x,
+                    target_translation.y + scaled_distance_y,
+                );
+
+                commands.command_scope(|mut commands| {
+                    commands
+                        .entity(entity)
+                        .mutate_component::<Transform>(move |mut transform| {
+                            transform.translation.x = translation.x;
+                            transform.translation.y = translation.y;
+                        });
+                });
+            });
+    }
+}
+
+// Moves returns translation moves so that it is the desired distance away from target translation.
+fn distance_constraint(distance_desired: f32, translation: Vec2, target_translation: Vec2) -> Vec2 {
+    // TODO: Work out why this is required.
+    if distance_desired == 0. {
+        return target_translation;
+    }
+
+    // Because I don't know math, and I don't know how to search the internet, this is written by chatgpt.
+    let distance = translation.distance(target_translation);
+    let distance_x = translation.x - target_translation.x;
+    let distance_y = translation.y - target_translation.y;
+    let unit_distance_x = distance_x / distance;
+    let unit_distance_y = distance_y / distance;
+    let scaled_distance_x = unit_distance_x * distance_desired;
+    let scaled_distance_y = unit_distance_y * distance_desired;
+
+    // We move in distance inthe direction so we arrive at the tranform, we then move back to be at the desired distance.
+    Vec2::new(
+        target_translation.x + scaled_distance_x,
+        target_translation.y + scaled_distance_y,
+    )
+}
+
+/// Chains entities between anchor and target.
+/// If target cannot be reached, the chain will still remain anchored.
+#[derive(Component)]
+pub struct Chain {
+    // Anchor is a seperate entity because we may want multiple chains on one anchor.
+    pub anchor: Entity,
+    /// The links of the chain.
+    /// In order of closest to anchor to closest to target. Roughly.
+    /// The translation is the source of truth, I think. Transform's translation's xy will be set to it.
+    /// (distance_to_previous, entity, translation)
+    // TODO: How does the last link interact with target?
+    pub links: Vec<(f32, Entity, Vec2)>,
+    pub target: Option<Entity>,
+}
+
+impl Chain {
+    pub fn solve(
+        mut chains: Query<&mut Chain>,
+        transforms: Query<&Transform>,
+        commands: ParallelCommands,
+    ) {
+        chains.par_iter_mut().for_each(|mut chain| {
+            let anchor_translation = transforms.get(chain.anchor).unwrap().translation.xy();
+            if let Some(target) = chain.target {
+                let target_translation = transforms.get(target).unwrap().translation.xy();
+                // Because deferred mutation can occur inside this for loop, we can NEVER query a link's transform inside of it.
+                // We just change the source of truth to the chain to deal with it.
+                // TODO: Five steps is arbitrary. We may wish to actually detect a convergence? But that may not happen if target is too far away.
+                for _ in 0..1 {
+                    // Towards target.
+                    // Solving it from target back towards anchor, because I think that makes the most sense, so that both go outwards towards the other.
+
+                    let mut previous_translation = target_translation;
+                    // Does the last link exactly match the target? I think so, but I'm not sure.
+                    let mut distance = 0.;
+
+                    chain.links.iter_mut().rev().for_each(
+                        |(next_distance, entity, translation)| {
+                            *translation =
+                                distance_constraint(distance, *translation, previous_translation);
+                            previous_translation = *translation;
+                            distance = *next_distance;
+                        },
+                    );
+
+                    // Back towards anchor.
+                    // Must be last, so we are always connected to anchor.
+
+                    let mut previous_translation = anchor_translation;
+
+                    chain
+                        .links
+                        .iter_mut()
+                        .for_each(|(distance, entity, translation)| {
+                            *translation =
+                                distance_constraint(*distance, *translation, previous_translation);
+                            previous_translation = *translation;
+                        });
+                }
+            } else {
+                // All we need to do is make sure that the distance constraints anchored to anchor are solved.
+                let mut previous_translation = anchor_translation;
+
+                chain
+                    .links
+                    .iter_mut()
+                    .for_each(|(distance, entity, translation)| {
+                        *translation =
+                            distance_constraint(*distance, *translation, previous_translation);
+                        previous_translation = *translation;
+                    });
+            }
+
+            chain.links.iter().for_each(|(_, entity, translation)| {
+                // Borrow checker manipulation.
+                let entity = *entity;
+                let translation = *translation;
+                commands.command_scope(move |mut commands| {
+                    commands
+                        .entity(entity)
+                        .mutate_component::<Transform>(move |mut transform| {
+                            transform.translation.x = translation.x;
+                            transform.translation.y = translation.y;
+                        });
+                });
+            });
+        });
+    }
+}

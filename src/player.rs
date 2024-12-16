@@ -3,7 +3,7 @@ use bevy::color::palettes::css::RED;
 pub use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{camera_follow, move_players, orb_follow, AbilityOrb, Player};
+    pub use super::{camera_follow, move_players, AbilityOrb, Player};
 }
 
 #[derive(Component)]
@@ -14,7 +14,7 @@ pub fn move_players(
     actions: Res<ActionState<Action>>,
     mut players: Query<&mut particle::Velocity, With<Player>>,
 ) {
-    const MOVE_SPEED: f32 = 50.;
+    const MOVE_SPEED: f32 = 100.; //50.;
 
     players.iter_mut().for_each(|mut velocity| {
         let movement =
@@ -25,6 +25,38 @@ pub fn move_players(
 
         //info!("{}", motion.amount);
     });
+}
+
+pub fn debug_action(
+    actions: Res<ActionState<Action>>,
+    mut players: Query<(&particle::Velocity, &Transform), With<Player>>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    particles: Query<&particle::Verlet>,
+) {
+    let (velocity, transform) = players.single();
+    if actions.just_pressed(&Action::Debug) {
+        for _ in 0..1 {
+            commands.spawn((
+                SpriteBundle {
+                    texture: asset_server.load("nodule.png"),
+                    transform: Transform::from_translation(transform.translation),
+                    sprite: Sprite {
+                        color: Color::Srgba(Srgba::rgb(1., 0., 0.)),
+                        custom_size: Some(Vec2::splat(30.)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                particle::Verlet::new(transform.translation.xy()),
+                Radius(15.),
+            ));
+        }
+
+        let particle_quantity = particles.iter().len();
+        info!("{}", particle_quantity);
+        info!("Debug pressed.");
+    }
 }
 
 // Having the player framerate be slower than the camera was very unpleasant. Abandoned due to that.
@@ -66,22 +98,22 @@ pub struct AbilityOrb {
     pub distance: f32,
 }
 
-pub fn orb_follow(
-    mut orbs: Query<(&mut Transform, &AbilityOrb)>,
-    transforms: Query<&Transform, Without<AbilityOrb>>,
-) {
-    orbs.par_iter_mut().for_each(|(mut transform, orb)| {
-        if let Some(following) = orb.following {
-            let other_transform = transforms.get(following).unwrap();
-            let translation = (transform.translation.xy() - other_transform.translation.xy())
-                .normalize_or_zero()
-                * orb.distance
-                + other_transform.translation.xy();
-            transform.translation.x = translation.x;
-            transform.translation.y = translation.y;
-        }
-    });
-}
+// pub fn orb_follow(
+//     mut orbs: Query<(&mut Transform, &AbilityOrb)>,
+//     transforms: Query<&Transform, Without<AbilityOrb>>,
+// ) {
+//     orbs.par_iter_mut().for_each(|(mut transform, orb)| {
+//         if let Some(following) = orb.following {
+//             let other_transform = transforms.get(following).unwrap();
+//             let translation = (transform.translation.xy() - other_transform.translation.xy())
+//                 .normalize_or_zero()
+//                 * orb.distance
+//                 + other_transform.translation.xy();
+//             transform.translation.x = translation.x;
+//             transform.translation.y = translation.y;
+//         }
+//     });
+// }
 
 pub fn debug_collisions(
     mut gizmos: Gizmos,

@@ -597,3 +597,25 @@ pub fn distance_between_edges(
 
 //     // distance_squared_between_edges
 // }
+
+pub fn seperate_circle(
+    radius_1: f32,
+    translation_1: Vec2,
+    radius_2: f32,
+    translation_2: Vec2,
+) -> Vec2 {
+    let distance_x = translation_1.x - translation_2.x;
+    let distance_y = translation_1.y - translation_2.y;
+    // TODO: Squared distance?
+    let distance = translation_1.distance(translation_2);
+    let min_distance = radius_1 + radius_2;
+
+    let unit_distance_x = distance_x / distance;
+    let unit_distance_y = distance_y / distance;
+
+    let overlap = min_distance - distance;
+    let move_x = unit_distance_x * overlap;
+    let move_y = unit_distance_y * overlap;
+
+    Vec2::new(move_x, move_y)
+}
