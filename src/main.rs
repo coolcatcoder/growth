@@ -15,7 +15,10 @@
 
 use std::ops::Range;
 
-use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
+use bevy::{
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    window::PrimaryWindow,
+};
 
 mod collision;
 mod events;
@@ -28,9 +31,7 @@ mod time;
 mod tree;
 
 mod prelude {
-    pub use super::{
-        squared, Action, GizmosLingering, Grower, MutateComponent, NoduleConfig, Terrain,
-    };
+    pub use super::{squared, Action, GizmosLingering, Grower, NoduleConfig, Terrain};
     pub use crate::{
         collision::prelude::*, ground::prelude::*, particle, player::prelude::*, sun::prelude::*,
         time::prelude::*, tree::prelude::*,
@@ -76,6 +77,7 @@ fn main() {
         .add_systems(
             Update,
             (
+                update_cursor_translation,
                 particle::Chain::solve,
                 plant::WibblyGrass::sway,
                 particle::DistanceConstraint::solve,
@@ -121,6 +123,7 @@ fn main() {
         //.add_systems_that_run_every(Duration::from_secs_f32(1.), || info!("blah"))
         .init_resource::<ActionState<Action>>()
         .init_resource::<GizmosLingering>()
+        .init_resource::<CursorWorldTranslation>()
         .insert_resource(Action::default_input_map())
         .insert_resource(ColliderGrid::new(GRID_ORIGIN))
         .run();
@@ -228,18 +231,15 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
     const DEBUG: bool = false;
 
     pub fn create(&mut self, config: NoduleConfig, translation: Vec2) -> EntityCommands {
-        let mut entity_commands = self.commands.spawn((Transform::from_translation(Vec3::new(
-            translation.x,
-            translation.y,
-            config.depth,
-        )), Sprite {
-            image: self.asset_server.load("nodule.png"),
-            color: Color::srgb(config.colour[0],
-                             config.colour[1],
-                             config.colour[2],),
-            custom_size: Some(Vec2::splat(config.diameter)),
-            ..default()
-        }));
+        let mut entity_commands = self.commands.spawn((
+            Transform::from_translation(Vec3::new(translation.x, translation.y, config.depth)),
+            Sprite {
+                image: self.asset_server.load("nodule.png"),
+                color: Color::srgb(config.colour[0], config.colour[1], config.colour[2]),
+                custom_size: Some(Vec2::splat(config.diameter)),
+                ..default()
+            },
+        ));
 
         if config.collision {
             entity_commands.insert(Radius {
@@ -567,12 +567,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 player_translation.x,
                 player_translation.y + 90.,
                 1.,
-            )), Sprite {
-                    image: asset_server.load("nodule.png"),
-                    color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
-                    ..default()
-                },
-            
+            )),
+            Sprite {
+                image: asset_server.load("nodule.png"),
+                color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
+                ..default()
+            },
             particle::Ticker(EveryTime::new(Duration::from_secs_f64(1. / 25.), default())),
             particle::Velocity(Vec2::new(0., -5.)),
             particle::StopOnCollision,
@@ -596,20 +596,17 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     following: Some(player),
                     distance: 60. * i as f32,
                 },
-                
-                    
-                    Sprite {
-                        image: asset_server.load("nodule.png"),
-                        color: Color::Srgba(Srgba::rgb(1.0, 1.0, 0.0)),
-                        custom_size: Some(Vec2::splat(15.)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(
-                        player_translation.x,
-                        player_translation.y + 90. + (60. * i as f32),
-                        1.,
-                    )),
-                    
+                Sprite {
+                    image: asset_server.load("nodule.png"),
+                    color: Color::Srgba(Srgba::rgb(1.0, 1.0, 0.0)),
+                    custom_size: Some(Vec2::splat(15.)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(
+                    player_translation.x,
+                    player_translation.y + 90. + (60. * i as f32),
+                    1.,
+                )),
             ))
             .id();
     }
@@ -640,6 +637,8 @@ pub enum Action {
     Move,
     Zoom,
     Debug,
+
+    AddPoint,
 }
 
 impl Actionlike for Action {
@@ -659,6 +658,7 @@ impl Action {
             .with_dual_axis(Self::Move, VirtualDPad::wasd())
             .with_axis(Self::Zoom, MouseScrollAxis::Y)
             .with(Self::Debug, KeyCode::KeyF)
+            .with(Self::AddPoint, ButtonlikeChord::from_single(MouseButton::Left).with(KeyCode::KeyQ))
     }
 }
 
@@ -686,6 +686,36 @@ fn debug_move_camera(
 
     player.single_mut().translation.x = transform.translation.x;
     player.single_mut().translation.y = transform.translation.y;
+}
+
+#[derive(Resource, Default)]
+pub struct CursorWorldTranslation(pub Vec2);
+
+pub fn update_cursor_translation(
+    mut cursor_position: ResMut<CursorWorldTranslation>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+) {
+    let (camera, camera_transform) = camera.get_single().unwrap();
+
+    let window = window.get_single().unwrap();
+
+    if let Some(world_position) = window
+        .cursor_position()
+        .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor).ok())
+        .map(|ray| ray.origin.truncate())
+    {
+        //previous_cursor_position.0 = cursor_position.0;
+        cursor_position.0 = world_position;
+        //println!("cursor coords: {},{}", world_position.x, world_position.y);
+    }
+}
+
+//MARK: TerrainLine
+#[derive(Component)]
+pub struct TerrainLine {
+    point_1: Entity,
+    point_2: Entity,
 }
 
 pub fn squared(value: f32) -> f32 {
@@ -725,28 +755,6 @@ impl<Rng: RngCore> RngExtension for Rng {
         } else {
             range.sample_single(self)
         }
-    }
-}
-
-//MARK: MutateComponent
-// this can be removed in 0.15
-pub trait MutateComponent {
-    fn mutate_component<T: Component>(
-        &mut self,
-        f: impl FnOnce(Mut<T>) + Send + Sync + 'static,
-    ) -> &mut Self;
-}
-
-impl MutateComponent for EntityCommands<'_> {
-    fn mutate_component<T: Component>(
-        &mut self,
-        f: impl FnOnce(Mut<T>) + Send + Sync + 'static,
-    ) -> &mut Self {
-        self.add(move |mut entity: EntityWorldMut| {
-            f(entity.get_mut::<T>().unwrap());
-        });
-
-        self
     }
 }
 

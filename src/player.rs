@@ -18,7 +18,7 @@ pub fn move_players(
 
     players.iter_mut().for_each(|mut velocity| {
         let movement =
-            actions.clamped_axis_pair(&Action::Move).xy() * MOVE_SPEED * time.delta_seconds();
+            actions.clamped_axis_pair(&Action::Move).xy() * MOVE_SPEED * time.delta_secs();
 
         **velocity += movement;
         velocity.y -= 0.5;
@@ -38,14 +38,11 @@ pub fn debug_action(
     if actions.just_pressed(&Action::Debug) {
         for _ in 0..1 {
             commands.spawn((
-                SpriteBundle {
-                    texture: asset_server.load("nodule.png"),
-                    transform: Transform::from_translation(transform.translation),
-                    sprite: Sprite {
-                        color: Color::Srgba(Srgba::rgb(1., 0., 0.)),
-                        custom_size: Some(Vec2::splat(30.)),
-                        ..default()
-                    },
+                Transform::from_translation(transform.translation),
+                Sprite {
+                    image: asset_server.load("nodule.png"),
+                    color: Color::Srgba(Srgba::rgb(1., 0., 0.)),
+                    custom_size: Some(Vec2::splat(30.)),
                     ..default()
                 },
                 particle::Verlet::new(transform.translation.xy()),
@@ -85,7 +82,7 @@ pub fn camera_follow(
 
     let new_position = camera_transform.translation.xy().move_towards(
         follow_transform.translation.xy(),
-        time.delta_seconds() * distance,
+        time.delta_secs() * distance,
     );
 
     camera_transform.translation.x = new_position.x;

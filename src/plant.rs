@@ -37,7 +37,7 @@ impl WibblyGrass {
         time: Res<Time>,
         commands: ParallelCommands,
     ) {
-        let delta = time.delta_seconds();
+        let delta = time.delta_secs();
 
         grass.par_iter().for_each(|(chain, anchor_transform)| {
             let mut closest_player: Option<(f32, Vec2)> = None;
@@ -63,7 +63,8 @@ impl WibblyGrass {
                 commands.command_scope(move |mut commands| {
                     commands
                         .entity(chain.target.unwrap())
-                        .mutate_component::<Transform>(move |mut transform| {
+                        .entry::<Transform>()
+                        .and_modify(move |mut transform| {
                             let mut translation = transform.translation.xy();
                             let direction = (closest_player.1 - translation).normalize_or_zero();
                             translation += direction * 100. * delta;
@@ -77,7 +78,8 @@ impl WibblyGrass {
                 commands.command_scope(move |mut commands| {
                     commands
                         .entity(chain.target.unwrap())
-                        .mutate_component::<Transform>(move |mut transform| {
+                        .entry::<Transform>()
+                        .and_modify(move |mut transform| {
                             let mut translation = transform.translation.xy();
                             let direction = (rest_translation - translation).normalize_or_zero();
                             translation += direction * 100. * delta;
@@ -91,8 +93,7 @@ impl WibblyGrass {
 
     pub fn create<const X: i32, const WIDTH: u16>(info: LineCustomiserInfo) -> bool {
         if info.nodule_translation.y == 0 && (info.translation.x - X as f32).abs() < 60. {
-            info
-                .terrain
+            info.terrain
                 .create(
                     NoduleConfig {
                         depth: 1.,
@@ -102,7 +103,8 @@ impl WibblyGrass {
                     },
                     info.translation,
                 )
-                .mutate_component::<Sprite>(move |mut sprite| {
+                .entry::<Sprite>()
+                .and_modify(move |mut sprite| {
                     sprite.custom_size = Some(Vec2::new(WIDTH as f32, 30.));
                 });
 
@@ -219,14 +221,11 @@ impl Boulder {
                 direction: rng.gen_bool(0.5),
             },
             Radius(RADIUS),
-            SpriteBundle {
-                texture: asset_server.load("nodule.png"),
-                transform: Transform::from_translation(Vec3::new(translation.x, translation.y, 1.)),
-                sprite: Sprite {
-                    color: Color::Srgba(Srgba::rgb(0., 1., 1.)),
-                    custom_size: Some(Vec2::splat(RADIUS * 2.)),
-                    ..default()
-                },
+            Transform::from_translation(Vec3::new(translation.x, translation.y, 1.)),
+            Sprite {
+                image: asset_server.load("nodule.png"),
+                color: Color::Srgba(Srgba::rgb(0., 1., 1.)),
+                custom_size: Some(Vec2::splat(RADIUS * 2.)),
                 ..default()
             },
         ));
@@ -370,7 +369,7 @@ impl Boulder {
                     }
 
                     if let Some(motion) = motion {
-                        commands.entity(entity).mutate_component::<Transform>(
+                        commands.entity(entity).entry::<Transform>().and_modify(
                             move |mut transform| {
                                 transform.translation.x += motion.x;
                                 transform.translation.y += motion.y;

@@ -90,14 +90,11 @@ impl Tree {
                 height,
                 max_height,
             },
-            SpriteBundle {
-                texture: asset_server.load("nodule.png"),
-                transform: Transform::from_translation(Vec3::new(translation.x, translation.y, 0.)),
-                sprite: Sprite {
-                    color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
-                    custom_size: Some(SIZE),
-                    ..default()
-                },
+            Transform::from_translation(Vec3::new(translation.x, translation.y, 0.)),
+            Sprite {
+                image: asset_server.load("nodule.png"),
+                color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
+                custom_size: Some(SIZE),
                 ..default()
             },
         ));
@@ -168,14 +165,11 @@ impl Leaf {
                 growth_remaining,
                 direction,
             },
-            SpriteBundle {
-                texture: asset_server.load("nodule.png"),
-                transform: Transform::from_translation(Vec3::new(translation.x, translation.y, 0.)),
-                sprite: Sprite {
-                    color: Color::Srgba(Srgba::rgb(0.0, 0.0, 1.0)),
-                    custom_size: Some(SIZE),
-                    ..default()
-                },
+            Transform::from_translation(Vec3::new(translation.x, translation.y, 0.)),
+            Sprite {
+                image: asset_server.load("nodule.png"),
+                color: Color::Srgba(Srgba::rgb(0.0, 0.0, 1.0)),
+                custom_size: Some(SIZE),
                 ..default()
             },
         ));

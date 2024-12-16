@@ -49,18 +49,11 @@ impl Sun {
                 energy,
             },
             Radius(diameter / 2.),
-            SpriteBundle {
-                texture: asset_server.load("nodule.png"),
-                transform: Transform::from_translation(Vec3::new(
-                    translation.x,
-                    translation.y,
-                    -1.,
-                )),
-                sprite: Sprite {
-                    color: Color::Srgba(Srgba::rgb(1., 1., 0.)),
-                    custom_size: Some(Vec2::splat(diameter)),
-                    ..default()
-                },
+            Transform::from_translation(Vec3::new(translation.x, translation.y, -1.)),
+            Sprite {
+                image: asset_server.load("nodule.png"),
+                color: Color::Srgba(Srgba::rgb(1., 1., 0.)),
+                custom_size: Some(Vec2::splat(diameter)),
                 ..default()
             },
         ));
@@ -75,7 +68,7 @@ impl Sun {
 
         suns.iter_mut()
             .for_each(|(entity, mut sun, mut transform)| {
-                sun.time_passed += time.delta_seconds();
+                sun.time_passed += time.delta_secs();
 
                 while sun.time_passed >= MOVE_TIME {
                     sun.time_passed -= MOVE_TIME;

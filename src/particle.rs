@@ -296,7 +296,7 @@ impl Verlet {
                 particle.accelerate(Vec2::new(0., -10000.));
 
                 let mut translation = transform.translation.xy();
-                particle.update(time.delta_seconds(), &mut translation);
+                particle.update(time.delta_secs(), &mut translation);
                 transform.translation.x = translation.x;
                 transform.translation.y = translation.y;
             });
@@ -329,7 +329,8 @@ impl Verlet {
                         commands
                             .get_entity(entity)
                             .unwrap()
-                            .mutate_component::<Transform>(move |mut transform| {
+                            .entry::<Transform>()
+                            .and_modify(move |mut transform| {
                                 transform.translation.x = previous_translation.x;
                                 transform.translation.y = previous_translation.y;
                             });
@@ -397,12 +398,12 @@ impl DistanceConstraint {
                 );
 
                 commands.command_scope(|mut commands| {
-                    commands
-                        .entity(entity)
-                        .mutate_component::<Transform>(move |mut transform| {
+                    commands.entity(entity).entry::<Transform>().and_modify(
+                        move |mut transform| {
                             transform.translation.x = translation.x;
                             transform.translation.y = translation.y;
-                        });
+                        },
+                    );
                 });
             });
     }
@@ -509,12 +510,12 @@ impl Chain {
                 let entity = *entity;
                 let translation = *translation;
                 commands.command_scope(move |mut commands| {
-                    commands
-                        .entity(entity)
-                        .mutate_component::<Transform>(move |mut transform| {
+                    commands.entity(entity).entry::<Transform>().and_modify(
+                        move |mut transform| {
                             transform.translation.x = translation.x;
                             transform.translation.y = translation.y;
-                        });
+                        },
+                    );
                 });
             });
         });
