@@ -108,7 +108,9 @@ where
                 }
             }
 
-            let (other_collider, other_transform) = colliders.get(*other_entity).unwrap();
+            let Ok((other_collider, other_transform)) = colliders.get(*other_entity) else {
+                return false;
+            };
 
             if check_collision(
                 radius,
