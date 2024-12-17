@@ -1337,16 +1337,7 @@ impl TerrainLine {
                         )
                     };
 
-                line.line(
-                    line_entity,
-                    LineEnd {
-                        translation: point_1,
-                        offset_y: 0.,
-                    },
-                    point_2,
-                    &mut commands,
-                    &asset_server,
-                );
+                line.line(line_entity, point_1, point_2, &mut commands, &asset_server);
 
                 info!("Generated a line!");
             }
@@ -1406,13 +1397,17 @@ impl TerrainLine {
             {
                 // Cheeky using this let statement to also show other debug info.
                 gizmos.line_2d(
-                    point_1.translation.xy() + Vec2::new(0., line.offset_y_bounds.start),
-                    point_2.translation.xy() + Vec2::new(0., line.offset_y_bounds.start),
+                    point_1.translation.xy()
+                        + Vec2::new(0., line.offset_y_bounds.start + line.upwards_offset),
+                    point_2.translation.xy()
+                        + Vec2::new(0., line.offset_y_bounds.start + line.upwards_offset),
                     Color::srgb(0.0, 0.5, 0.0),
                 );
                 gizmos.line_2d(
-                    point_1.translation.xy() + Vec2::new(0., line.offset_y_bounds.end),
-                    point_2.translation.xy() + Vec2::new(0., line.offset_y_bounds.end),
+                    point_1.translation.xy()
+                        + Vec2::new(0., line.offset_y_bounds.end + line.upwards_offset),
+                    point_2.translation.xy()
+                        + Vec2::new(0., line.offset_y_bounds.end + line.upwards_offset),
                     Color::srgb(0.0, 0.5, 0.0),
                 );
 
@@ -1421,7 +1416,11 @@ impl TerrainLine {
                 Color::srgb(0.0, 1.0, 0.0)
             };
 
-            gizmos.line_2d(point_1.translation.xy(), point_2.translation.xy(), colour);
+            gizmos.line_2d(
+                point_1.translation.xy() + Vec2::new(0., line.upwards_offset),
+                point_2.translation.xy() + Vec2::new(0., line.upwards_offset),
+                colour,
+            );
         });
     }
 
@@ -1455,25 +1454,20 @@ impl TerrainLine {
     fn line(
         &self,
         entity: Entity,
-        from: LineEnd,
+        from: Vec2,
         to: Vec2,
         commands: &mut Commands,
         asset_server: &AssetServer,
-    ) -> LineEnd {
+    ) {
         //TODO: Each nodules should have its own rng seeded from the nodule x and y somehow, and then added to the main seed.
         // Otherwise we suffer huge rng changes from just increasing the depth.
         let mut rng = StdRng::seed_from_u64(self.seed);
 
-        let mut to = LineEnd {
-            translation: to,
-            // TODO: Why???
-            offset_y: from.offset_y,
-        };
+        let mut offset_y = 0.;
 
         //let distance = self.previous_translation.distance(to);
-        let distance_x = (from.translation.x - to.translation.x).abs();
-        let gradient =
-            (to.translation.y - from.translation.y) / (to.translation.x - from.translation.x);
+        let distance_x = (from.x - to.x).abs();
+        let gradient = (to.y - from.y) / (to.x - from.x);
 
         // Hang on a second, why is this using distance? Shouldn't it only be x distance, not real distance???
         // I've replaced it with distance_x, but we should make certain that this is now correct.
@@ -1483,35 +1477,8 @@ impl TerrainLine {
             let x = nodule_x as f32 * self.spacing.x;
             let y = x * gradient;
 
-            //TODO: Remove and add a replacement in the debug system.
-            // if Self::DEBUG {
-            //     self.create(
-            //         NoduleConfig {
-            //             colour: [0., 0., 1.],
-            //             ..default()
-            //         },
-            //         Vec2::new(x, y) + from.translation,
-            //     );
-            //     self.create(
-            //         NoduleConfig {
-            //             colour: [0., 1., 0.],
-            //             ..default()
-            //         },
-            //         Vec2::new(x, y + config.offset_y_bounds.start) + from.translation,
-            //     );
-            //     self.create(
-            //         NoduleConfig {
-            //             colour: [0., 1., 0.],
-            //             ..default()
-            //         },
-            //         Vec2::new(x, y + config.offset_y_bounds.end) + from.translation,
-            //     );
-            // }
-
-            to.offset_y += rng.gen_range_allow_empty(self.offset_y_change.clone());
-            to.offset_y = to
-                .offset_y
-                .clamp(self.offset_y_bounds.start, self.offset_y_bounds.end);
+            offset_y += rng.gen_range_allow_empty(self.offset_y_change.clone());
+            offset_y = offset_y.clamp(self.offset_y_bounds.start, self.offset_y_bounds.end);
 
             let roughness = rng.gen_range_allow_empty(self.roughness.clone());
 
@@ -1523,15 +1490,16 @@ impl TerrainLine {
 
                 let translation = Vec2::new(
                     x,
-                    y + to.offset_y + (depth as f32 * -self.spacing.y) + roughness,
-                ) + from.translation
+                    y + offset_y
+                        + (depth as f32 * -self.spacing.y)
+                        + roughness
+                        + self.upwards_offset,
+                ) + from
                     + jitter;
 
                 self.create(entity, translation, commands, asset_server);
             }
         }
-
-        to
     }
 }
 
