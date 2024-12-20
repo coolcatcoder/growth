@@ -29,29 +29,10 @@ pub fn move_players(
 
 pub fn debug_action(
     actions: Res<ActionState<Action>>,
-    mut players: Query<(&particle::Velocity, &Transform), With<Player>>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    particles: Query<&particle::Verlet>,
+    mut start_save_writer: EventWriter<StartSave>,
 ) {
-    let (velocity, transform) = players.single();
     if actions.just_pressed(&Action::Debug) {
-        for _ in 0..1 {
-            commands.spawn((
-                Transform::from_translation(transform.translation),
-                Sprite {
-                    image: asset_server.load("nodule.png"),
-                    color: Color::Srgba(Srgba::rgb(1., 0., 0.)),
-                    custom_size: Some(Vec2::splat(30.)),
-                    ..default()
-                },
-                particle::Verlet::new(transform.translation.xy()),
-                Radius(15.),
-            ));
-        }
-
-        let particle_quantity = particles.iter().len();
-        info!("{}", particle_quantity);
+        start_save_writer.send(StartSave("testing/".into()));
         info!("Debug pressed.");
     }
 }
