@@ -32,7 +32,7 @@ pub fn debug_action(
     mut start_save_writer: EventWriter<StartSave>,
 ) {
     if actions.just_pressed(&Action::Debug) {
-        start_save_writer.send(StartSave("testing/".into()));
+        start_save_writer.send(StartSave(Situation::Lines));
         info!("Debug pressed.");
     }
 }

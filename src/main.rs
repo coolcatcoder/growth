@@ -89,7 +89,7 @@ fn main() {
             Update,
             (
                 LineSelected::ui,
-                (StartSave::clear_previous,),
+                (StartSave::prepare,),
                 (
                     TerrainLine::save,
                     TerrainLine::generate,
@@ -1315,7 +1315,13 @@ impl TerrainLine {
         mut entity_to_index: ResMut<EntityToIndex>,
     ) {
         save.read().for_each(|save| {
+            if !matches!(save.0, Situation::Lines) {
+                return;
+            }
+            
+            Save::prepare_path("./lines");
             info!("Save lines.");
+
             lines.iter().for_each(|line| {
                 let point_1 = entity_to_index.convert(line.point_1);
                 let point_2 = entity_to_index.convert(line.point_2);
@@ -1339,8 +1345,8 @@ impl TerrainLine {
                 };
 
                 // Between 2 points there should only be 1 lines, so we can be certain that this is a unique file name.
-                save.to_file(
-                    format!("{point_1}_{point_2}.line.json"),
+                Save::to_file(
+                    format!("./lines/{point_1}_{point_2}.line.json"),
                     &serialiseable_line,
                 );
             });
