@@ -9,7 +9,9 @@ use serde::Serialize;
 pub use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{EntityToIndex, IndexToEntity, Load, Save, Situation, StartSave};
+    pub use super::{
+        EntityToIndex, IndexToEntity, Load, Save, Situation, StartLoad, StartSave,
+    };
 }
 
 /// Anything saved will be relative to this path.
@@ -17,6 +19,8 @@ pub mod prelude {
 const SAVE_PATH: &str = "./assets/saves/";
 
 /// What we want to save/load.
+// Does this actually make sense for both save and load?
+// When would I ever want to just load lines??
 #[derive(Copy, Clone)]
 pub enum Situation {
     // String is relative save path.
@@ -82,6 +86,7 @@ impl Save {
         };
     }
 
+    /// Saves a serialisiable value to a path.
     pub fn to_file<T: Serialize>(path: impl AsRef<Path>, value: &T) {
         let path = Path::new(SAVE_PATH).join(&path);
         let file = match File::create(&path) {
@@ -108,26 +113,81 @@ impl Save {
 
 /// Indicates to start loading from that path relative to SAVE_PATH.
 #[derive(Event)]
-pub struct StartLoad(String);
+pub struct StartLoad(pub Situation);
 
 impl StartLoad {
-    pub fn clear_and_get_handles(
+    pub fn prepare(
         mut start_load: EventReader<StartLoad>,
         mut load: EventWriter<Load>,
         mut index_to_entity: ResMut<IndexToEntity>,
     ) {
         start_load.read().for_each(|start_load| {
-            // I need to think carefully here.
-            // Do we want to just clear it, and have a seperate Deload event?
-            // Do we want to interate and remove all previously loaded entities?
+            // So far, I'm thinking that we should leave deloading up to the components. They can deload themselves if they want. Or not.
+            // We just clear this then.
             index_to_entity.0.clear();
+
+            load.send(Load(start_load.0));
         });
     }
 }
 
-/// Tells everything to load. Only load assets from the handles provided.
+#[macro_export]
+macro_rules! load_system {
+    (serialised: $serialised:ty, spawn_parameters: $spawn_parameters:ty, despawn_parameters: $despawn_parameters:ty, spawner: $spawner:expr, despawner: $despawner:expr) => {
+        fn load(
+            mut load: EventReader<Load>,
+            mut folders: ResMut<Assets<LoadedFolder>>,
+            mut serialised: ResMut<Assets<$serialised>>,
+            asset_server: Res<AssetServer>,
+            mut folder_handle: Local<Option<Handle<LoadedFolder>>>,
+            mut commands: Commands,
+            mut spawn_parameters: $spawn_parameters,
+            mut despawn_parameters: $despawn_parameters,
+        ) {
+            if let Some(handle) = folder_handle.as_ref() {
+                let folder = some_or_return!(folders.get_mut(handle));
+
+                if folder.handles.is_empty() {
+                    *folder_handle = None;
+                    info!("Finished loading folder.");
+                } else {
+                    // This while loop removes handles as they load.
+                    let mut index = folder.handles.len();
+                    while index != 0 {
+                        index -= 1;
+                        let line_id = ok_or_error_and_return!(
+                            folder.handles[index].id().try_typed::<$serialised>(),
+                            "Tried to load file. Got error:"
+                        );
+                        if let Some(serialised) = serialised.remove(line_id) {
+                            // Iterating backwards, so this is fine.
+                            folder.handles.swap_remove(index);
+
+                            $spawner(serialised, &mut spawn_parameters, &mut commands);
+                            info!("Loaded a file!");
+                        }
+                    }
+                }
+            } else {
+                load.read().for_each(|load| {
+                    if !matches!(load.0, Situation::World) {
+                        return;
+                    }
+
+                    *folder_handle = Some(asset_server.load_folder("./saves/lines"));
+
+                    $despawner(&mut despawn_parameters, &mut commands);
+
+                    info!("Loading lines folder!");
+                });
+            }
+        }
+    };
+}
+
+/// Tells everything to load.
 #[derive(Event)]
-pub struct Load(Vec<UntypedHandle>);
+pub struct Load(pub Situation);
 
 /// Because Entity is opaque, we must convert it to something that will never change.
 #[derive(Resource, Default)]

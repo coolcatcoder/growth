@@ -17,6 +17,7 @@ use std::ops::{Range, RangeInclusive};
 
 use arrayvec::ArrayVec;
 use bevy::{
+    asset::LoadedFolder,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     ecs::query::QueryFilter,
     window::PrimaryWindow,
@@ -40,8 +41,9 @@ mod tree;
 mod prelude {
     pub use super::{squared, Action, GizmosLingering, Grower, NoduleConfig, Terrain};
     pub use crate::{
-        collision::prelude::*, ground::prelude::*, particle, player::prelude::*,
-        saving::prelude::*, sun::prelude::*, time::prelude::*, tree::prelude::*,
+        collision::prelude::*, ground::prelude::*, load_system, ok_or_error_and_return, particle,
+        player::prelude::*, saving::prelude::*, some_or_return, sun::prelude::*, time::prelude::*,
+        tree::prelude::*,
     };
     pub use bevy::{
         ecs::{
@@ -61,6 +63,50 @@ use bevy_common_assets::json::JsonAssetPlugin;
 use prelude::*;
 use rand::distributions::uniform::{SampleRange, SampleUniform};
 use serde::{Deserialize, Serialize};
+
+//MARK: unwrap
+/// Either some, or it returns optionally with a value.
+#[macro_export]
+macro_rules! some_or_return {
+    ($option:expr) => {
+        if let Some(value) = $option {
+            value
+        } else {
+            return;
+        }
+    };
+
+    ($option:expr, $return:expr) => {
+        if let Some(value) = $option {
+            value
+        } else {
+            return $return;
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! ok_or_error_and_return {
+    ($result:expr) => {
+        match $result {
+            Ok(result) => result,
+            Err(error) => {
+                error!("{error}");
+                return;
+            }
+        }
+    };
+
+    ($result:expr, $message:expr) => {
+        match $result {
+            Ok(result) => result,
+            Err(error) => {
+                error!("{} {error}", $message);
+                return;
+            }
+        }
+    };
+}
 
 // The world is dying. Save it. The sun will eventually hit the world. Hope they realise that sooner rather than later!
 // Energy is area, roughly 1 energy for 700 area (30 diameter circle). You can only store as much energy as your area will allow.
@@ -89,8 +135,9 @@ fn main() {
             Update,
             (
                 LineSelected::ui,
-                (StartSave::prepare,),
+                (StartSave::prepare, StartLoad::prepare),
                 (
+                    TerrainLine::load,
                     TerrainLine::save,
                     TerrainLine::generate,
                     TerrainLine::validate,
@@ -151,10 +198,12 @@ fn main() {
         .init_resource::<CursorPreviousWorldTranslation>()
         .init_resource::<LineSelected>()
         .init_resource::<EntityToIndex>()
+        .init_resource::<IndexToEntity>()
         .insert_resource(Action::default_input_map())
         .insert_resource(ColliderGrid::new(GRID_ORIGIN))
         .add_event::<StartSave>()
         .add_event::<Save>()
+        .add_event::<StartLoad>()
         .add_event::<Load>()
         .run();
 }
@@ -452,7 +501,14 @@ fn customisers<const L: usize>(
     unsafe { std::mem::MaybeUninit::array_assume_init(output) }
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut start_load: EventWriter<StartLoad>,
+) {
+    // Temporary as for now we care only for the world.
+    start_load.send(StartLoad(Situation::World));
+
     let mut rng: ThreadRng = thread_rng();
 
     let mut terrain = Terrain::new(Vec2::new(-25_000., 10000.0), &mut commands, &asset_server);
@@ -1168,7 +1224,7 @@ struct SerialiseableTerrainLine {
 
 /// A bunch of circles that look like terrain hopefully.
 #[derive(Component)]
-pub struct TerrainLine {
+struct TerrainLine {
     point_1: Entity,
     point_2: Entity,
 
@@ -1300,6 +1356,7 @@ impl TerrainLine {
         mut commands: Commands,
     ) {
         lines.iter().for_each(|(entity, line)| {
+            // We only care if the entity exists. Even if it does not have the required components, it may stil be loading.
             if commands.get_entity(line.point_1).is_none()
                 || commands.get_entity(line.point_2).is_none()
             {
@@ -1318,7 +1375,7 @@ impl TerrainLine {
             if !matches!(save.0, Situation::Lines) {
                 return;
             }
-            
+
             Save::prepare_path("./lines");
             info!("Save lines.");
 
@@ -1351,6 +1408,119 @@ impl TerrainLine {
                 );
             });
         });
+    }
+
+    fn spawner(
+        line_to_load: SerialiseableTerrainLine,
+        index_to_entity: &mut IndexToEntity,
+        commands: &mut Commands,
+    ) {
+        let point_1 = index_to_entity.convert(line_to_load.point_1, commands);
+        let point_2 = index_to_entity.convert(line_to_load.point_2, commands);
+
+        commands.spawn(TerrainLine {
+            point_1,
+            point_2,
+            generate: true,
+            seed: line_to_load.seed,
+            spacing: line_to_load.spacing,
+            offset_y_bounds: line_to_load.offset_y_bounds.clone(),
+            offset_y_change: line_to_load.offset_y_change.clone(),
+            roughness: line_to_load.roughness.clone(),
+            jitter_x: line_to_load.jitter_x.clone(),
+            jitter_y: line_to_load.jitter_y.clone(),
+            depth: line_to_load.depth,
+            upwards_offset: line_to_load.upwards_offset,
+            z: line_to_load.z,
+            diameter: line_to_load.diameter,
+            colour: line_to_load.colour,
+            collision: line_to_load.collision,
+        });
+    }
+
+    fn despawner(
+        (lines, belongs_to_terrain): &mut (
+            Query<Entity, With<TerrainLine>>,
+            Query<Entity, With<BelongsToTerrain>>,
+        ),
+        commands: &mut Commands,
+    ) {
+        lines.despawn_all(commands);
+        belongs_to_terrain.despawn_all(commands);
+    }
+
+    load_system!(serialised: SerialiseableTerrainLine, spawn_parameters: ResMut<IndexToEntity>, despawn_parameters: (Query<Entity, With<TerrainLine>>, Query<Entity, With<BelongsToTerrain>>), spawner: Self::spawner, despawner: Self::despawner);
+
+    /// Deloads any current lines, and then loads the lines from the files.
+    fn load_old(
+        mut load: EventReader<Load>,
+        mut loaded_folders: ResMut<Assets<LoadedFolder>>,
+        serialised_lines: Res<Assets<SerialiseableTerrainLine>>,
+        asset_server: Res<AssetServer>,
+        mut folder_handle: Local<Option<Handle<LoadedFolder>>>,
+        mut index_to_entity: ResMut<IndexToEntity>,
+        mut commands: Commands,
+        lines: Query<Entity, With<TerrainLine>>,
+        belongs_to_terrain: Query<Entity, With<BelongsToTerrain>>,
+    ) {
+        if let Some(handle) = folder_handle.as_ref() {
+            let lines_to_load = some_or_return!(loaded_folders.get_mut(handle));
+
+            if lines_to_load.handles.is_empty() {
+                *folder_handle = None;
+                info!("Finished loading lines folder.");
+            } else {
+                // This while loop removes handles as they load.
+                let mut index = lines_to_load.handles.len();
+                while index != 0 {
+                    index -= 1;
+                    let line_id = ok_or_error_and_return!(
+                        lines_to_load.handles[index]
+                            .id()
+                            .try_typed::<SerialiseableTerrainLine>(),
+                        "Tried to load line. Got error:"
+                    );
+                    if let Some(line_to_load) = serialised_lines.get(line_id) {
+                        // Iterating backwards, so this is fine.
+                        lines_to_load.handles.swap_remove(index);
+
+                        let point_1 = index_to_entity.convert(line_to_load.point_1, &mut commands);
+                        let point_2 = index_to_entity.convert(line_to_load.point_2, &mut commands);
+
+                        commands.spawn(TerrainLine {
+                            point_1,
+                            point_2,
+                            generate: true,
+                            seed: line_to_load.seed,
+                            spacing: line_to_load.spacing,
+                            offset_y_bounds: line_to_load.offset_y_bounds.clone(),
+                            offset_y_change: line_to_load.offset_y_change.clone(),
+                            roughness: line_to_load.roughness.clone(),
+                            jitter_x: line_to_load.jitter_x.clone(),
+                            jitter_y: line_to_load.jitter_y.clone(),
+                            depth: line_to_load.depth,
+                            upwards_offset: line_to_load.upwards_offset,
+                            z: line_to_load.z,
+                            diameter: line_to_load.diameter,
+                            colour: line_to_load.colour,
+                            collision: line_to_load.collision,
+                        });
+
+                        info!("Loaded a line!");
+                    }
+                }
+            }
+        } else {
+            load.read().for_each(|load| {
+                if !matches!(load.0, Situation::World) {
+                    return;
+                }
+
+                *folder_handle = Some(asset_server.load_folder("./saves/lines"));
+
+                info!("Loading lines folder!");
+            });
+        }
     }
 
     /// Deletes itself properly. Makes sure to delete every generated entity aswell.
@@ -1604,20 +1774,6 @@ fn display_lingering_gizmos(
         });
 }
 
-pub trait CompileTimeOption<T> {
-    fn get(&self) -> Option<&T>;
-}
-
-impl<T> CompileTimeOption<T> for T {
-    fn get(&self) -> Option<&T> {
-        Some(self)
-    }
-}
-
-// impl<T> CompileTimeOption<T> for () {
-
-// }
-
 //MARK: Response Ext
 /// Makes response arrays a bit easier to work with.
 /// Stolen from previous projects.
@@ -1632,5 +1788,21 @@ impl<const N: usize> ResponseArray for [Response; N] {
         // I feel a bit confused, but this should work?
         iter.for_each(|r| response = response.union(r));
         response
+    }
+}
+
+//MARK: Query Ext
+trait QueryExtensions {
+    // owned query or borrow query??? Or generic get query from world???
+    fn despawn_all(&self, commands: &mut Commands);
+}
+
+impl<F: QueryFilter> QueryExtensions for Query<'_, '_, Entity, F> {
+    fn despawn_all(&self, commands: &mut Commands) {
+        self.iter().for_each(|entity| {
+            if let Some(mut entity) = commands.get_entity(entity) {
+                entity.despawn()
+            }
+        });
     }
 }
