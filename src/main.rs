@@ -103,8 +103,9 @@ fn main() {
             Update,
             (
                 LineSelected::ui,
-                (StartSave::prepare, StartLoad::prepare),
+                (StartSave::prepare, LoadStart::prepare),
                 (
+                    TerrainLine::on_load,
                     TerrainLine::generate,
                     TerrainLine::validate,
                     TerrainLine::debug,
@@ -169,11 +170,13 @@ fn main() {
         .insert_resource(ColliderGrid::new(GRID_ORIGIN))
         .add_event::<StartSave>()
         .add_event::<Save>()
-        .add_event::<StartLoad>()
+        .add_event::<LoadStart>()
         .add_event::<Load>()
+        .add_event::<LoadFinish>()
         .save_and_load::<TerrainLine>()
         .save_and_load::<TerrainPoint>()
         .save_and_load::<SaveConfig>()
+        .save_and_load::<Transform>()
         .run();
 }
 
@@ -473,10 +476,10 @@ fn customisers<const L: usize>(
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut start_load: EventWriter<StartLoad>,
+    mut start_load: EventWriter<LoadStart>,
 ) {
     // Temporary as for now we care only for the world.
-    start_load.send(StartLoad("./map".into()));
+    start_load.send(LoadStart("./map".into()));
 
     let mut rng: ThreadRng = thread_rng();
 
@@ -787,7 +790,6 @@ pub fn update_cursor_translation(
 //MARK: TerrainPoint
 /// A point that can be used in terrain lines.
 #[derive(Component, Default, SaveAndLoad)]
-#[location("./map")]
 pub struct TerrainPoint {
     selected: bool,
 }
@@ -804,7 +806,7 @@ impl TerrainPoint {
         if actions.just_pressed(&Action::AddPoint) {
             commands.spawn((
                 SaveConfig {
-                    path: "./map".into()
+                    path: "./map".into(),
                 },
                 TerrainPoint::default(),
                 Transform::from_translation(Vec3::new(translation.0.x, translation.0.y, 0.)),
@@ -1178,8 +1180,6 @@ impl LineSelected {
 
 /// A bunch of circles that look like terrain hopefully.
 #[derive(Component, SaveAndLoad)]
-#[location("./map")]
-#[unload(BelongsToTerrain)]
 struct TerrainLine {
     point_1: Entity,
     point_2: Entity,
@@ -1315,12 +1315,24 @@ impl TerrainLine {
         mut commands: Commands,
     ) {
         lines.iter().for_each(|(entity, line)| {
-            // We only care if the entity exists. Even if it does not have the required components, it may stil be loading.
+            // We only care if the entity exists. Even if it does not have the required components, it may still be loading.
             if commands.get_entity(line.point_1).is_none()
                 || commands.get_entity(line.point_2).is_none()
             {
                 Self::delete(entity, &mut commands, &generated);
             }
+        });
+    }
+
+    /// Generates the lines when they load.
+    fn on_load(
+        mut load_finish: EventReader<LoadFinish>,
+        mut commands: Commands,
+    ) {
+        load_finish.read().for_each(|load_finish| {
+            commands.entity(load_finish.0).entry::<Self>().and_modify(|mut line| {
+                line.generate = true;
+            });
         });
     }
 

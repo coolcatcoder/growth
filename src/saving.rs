@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use serde::de::DeserializeOwned;
 
 pub use crate::prelude::*;
@@ -7,7 +5,7 @@ pub use crate::prelude::*;
 pub mod prelude {
     pub use super::{
         DeserialiseEntity, Load, Save, SaveAndLoad, SaveConfig, SerialiseEntity, SerialisedEntity,
-        StartLoad, StartSave,
+        LoadStart, StartSave, LoadFinish
     };
 }
 
@@ -33,6 +31,8 @@ impl StartSave {
         start_save.read().for_each(|start_save| {
             serialise_entity.0.clear();
             serialise_entity.1 = 0;
+
+            //TODO: Backup everything first.
 
             let path = Path::new(SAVE_PATH).join(&start_save.0);
 
@@ -110,11 +110,11 @@ impl Save {
 
 /// Indicates to start loading from that path relative to SAVE_PATH.
 #[derive(Event)]
-pub struct StartLoad(pub String);
+pub struct LoadStart(pub String);
 
-impl StartLoad {
+impl LoadStart {
     pub fn prepare(
-        mut start_load: EventReader<StartLoad>,
+        mut start_load: EventReader<LoadStart>,
         mut load: EventWriter<Load>,
         mut deserialise_entity: ResMut<DeserialiseEntity>,
         loaded_entities: Query<(Entity, &SaveConfig)>,
@@ -140,15 +140,14 @@ impl StartLoad {
 #[derive(Event)]
 pub struct Load(pub String);
 
+#[derive(Event)]
+pub struct LoadFinish(pub Entity);
+
 /// Because Entity is opaque, we must convert it to something that will never change.
 #[derive(Resource, Default)]
 pub struct SerialiseEntity(HashMap<Entity, u32>, u32);
 
 impl SerialiseEntity {
-    pub fn folder(&mut self, entity: Entity, path: impl AsRef<Path>) -> SerialisedEntity {
-        todo!()
-    }
-
     pub fn convert(&mut self, entity: Entity) -> SerialisedEntity {
         // Get the index if it exists, else create the index and return it.
         if let Some(index) = self.0.get(&entity) {
@@ -258,6 +257,7 @@ pub trait SaveAndLoad: Sized + Component {
         mut deserialise_entity: ResMut<DeserialiseEntity>,
 
         mut load: EventReader<Load>,
+        mut load_finish: EventWriter<LoadFinish>,
 
         asset_server: Res<AssetServer>,
         serialised: Res<Assets<Self::Serialised>>,
@@ -339,6 +339,8 @@ pub trait SaveAndLoad: Sized + Component {
                         let entity = deserialise_entity.convert(serialised_entity, &mut commands);
                         commands.entity(entity).insert(deserialised);
 
+                        load_finish.send(LoadFinish(entity));
+
                         // Iterating backwards, so this is safe.
                         component_handles.swap_remove(index);
                     }
@@ -361,5 +363,13 @@ impl AppSaveAndLoad for App {
         self.add_plugins(JsonAssetPlugin::<T::Serialised>::new(&[T::FILE_EXTENSION]));
         self.add_systems(Update, (T::save, T::load));
         self
+    }
+}
+
+save_and_load_external! {
+    pub struct Transform {
+        pub translation: Vec3,
+        pub rotation: Quat,
+        pub scale: Vec3,
     }
 }

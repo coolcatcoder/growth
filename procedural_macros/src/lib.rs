@@ -5,10 +5,7 @@ mod prelude {
     pub use proc_macro2::{Group, Span, TokenStream, TokenTree};
     pub use quote::{quote, ToTokens};
     pub use std::stringify;
-    pub use syn::{
-        parse::Parse, parse_macro_input, punctuated::Punctuated, Data, DeriveInput, Error, Fields,
-        Ident, Meta, Token,
-    };
+    pub use syn::{parse_macro_input, Data, DeriveInput, Ident};
 }
 
 use prelude::*;
@@ -78,7 +75,7 @@ impl TokenStreamPush for TokenStream {
     }
 }
 
-#[proc_macro_derive(SaveAndLoad, attributes(location, unload))]
+#[proc_macro_derive(SaveAndLoad)]
 pub fn save_and_load(input: StdTokenStream) -> StdTokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
