@@ -209,15 +209,15 @@ struct LineConfig<const L: usize = 0> {
     spacing: Vec2,
 
     // Offset y translates y and creeps randomly up and down.
-    offset_y_bounds: Range<f32>,
-    offset_y_change: Range<f32>,
+    offset_y_bounds: RangeInclusive<f32>,
+    offset_y_change: RangeInclusive<f32>,
 
     // Randomly translates y, to make the terrain look rough or smooth.
-    roughness: Range<f32>,
+    roughness: RangeInclusive<f32>,
 
     // The jitter of every nodule
-    jitter_x: Range<f32>,
-    jitter_y: Range<f32>,
+    jitter_x: RangeInclusive<f32>,
+    jitter_y: RangeInclusive<f32>,
 
     // How many nodules we shall spawn in a downwards direction.
     // 1 means there will be 1 nodule.
@@ -237,13 +237,13 @@ impl<const L: usize> Default for LineConfig<L> {
         Self {
             spacing: Vec2::splat(20.),
 
-            offset_y_bounds: (30. * -5.)..(30. * 5.),
-            offset_y_change: -20.0..20.0,
+            offset_y_bounds: (30. * -5.)..=(30. * 5.),
+            offset_y_change: -20.0..=20.0,
 
-            roughness: 0.0..0.0,
+            roughness: 0.0..=0.0,
 
-            jitter_x: -5.0..5.0,
-            jitter_y: -5.0..5.0,
+            jitter_x: -5.0..=5.0,
+            jitter_y: -5.0..=5.0,
 
             depth: 1,
             upwards_offset: 0.,
@@ -377,30 +377,28 @@ impl<'c, 'a, 'w, 's> Terrain<'c, 'a, 'w, 's> {
                         colour: [0., 1., 0.],
                         ..default()
                     },
-                    Vec2::new(x, y + config.offset_y_bounds.start) + from.translation,
+                    Vec2::new(x, y + config.offset_y_bounds.start()) + from.translation,
                 );
                 self.create(
                     NoduleConfig {
                         colour: [0., 1., 0.],
                         ..default()
                     },
-                    Vec2::new(x, y + config.offset_y_bounds.end) + from.translation,
+                    Vec2::new(x, y + config.offset_y_bounds.end()) + from.translation,
                 );
             }
 
-            to.offset_y += self
-                .rng
-                .gen_range_allow_empty(config.offset_y_change.clone());
+            to.offset_y += self.rng.gen_range(config.offset_y_change.clone());
             to.offset_y = to
                 .offset_y
-                .clamp(config.offset_y_bounds.start, config.offset_y_bounds.end);
+                .clamp(*config.offset_y_bounds.start(), *config.offset_y_bounds.end());
 
-            let roughness = self.rng.gen_range_allow_empty(config.roughness.clone());
+            let roughness = self.rng.gen_range(config.roughness.clone());
 
             for depth in 0..config.depth {
                 let jitter = Vec2::new(
-                    self.rng.gen_range_allow_empty(config.jitter_x.clone()),
-                    self.rng.gen_range_allow_empty(config.jitter_y.clone()),
+                    self.rng.gen_range(config.jitter_x.clone()),
+                    self.rng.gen_range(config.jitter_y.clone()),
                 );
 
                 let translation = Vec2::new(
@@ -495,7 +493,7 @@ fn setup(
         LineConfigDefault {
             depth: 100,
 
-            roughness: -500.0..500.0,
+            roughness: -500.0..=500.0,
             ..default()
         },
         NoduleConfig { ..default() },
@@ -540,7 +538,7 @@ fn setup(
         },
         Vec2::new(500., water_y),
         LineConfigDefault {
-            offset_y_change: 0.0..0.0,
+            offset_y_change: 0.0..=0.0,
             ..default()
         },
         NoduleConfig {
@@ -601,9 +599,9 @@ fn setup(
                 LineConfigDefault {
                     spacing: Vec2::splat(30.),
                     depth: thickness,
-                    offset_y_change: 0.0..0.0,
-                    jitter_x: 0.0..0.0,
-                    jitter_y: 0.0..0.0,
+                    offset_y_change: 0.0..=0.0,
+                    jitter_x: 0.0..=0.0,
+                    jitter_y: 0.0..=0.0,
                     ..default()
                 },
                 NoduleConfig {
@@ -970,210 +968,212 @@ impl LineSelected {
             return;
         };
 
-        let Ok(mut line) = lines.get_mut(line_entity) else {
+        let Ok(line) = lines.get_mut(line_entity) else {
             return;
         };
         let line = line.into_inner();
 
         egui::SidePanel::left("Line Editor").show(contexts.ctx_mut(), |ui| {
-            pub fn vec_ui<const N: usize, T: bevy_egui::egui::emath::Numeric>(
-                ui: &mut Ui,
-                vec_and_component_names: [(&mut T, &str); N],
-                name: &str,
-                range: RangeInclusive<T>,
-                speed: f32,
-            ) -> [Response; N] {
-                let mut responses = ArrayVec::<_, N>::new();
-
-                ui.vertical(|ui| {
-                    ui.label(name);
-
-                    ui.horizontal(|ui| {
-                        for (component, name) in vec_and_component_names {
-                            ui.vertical(|ui| {
-                                ui.label(name);
-                                responses.push(ui.add(
-                                    DragValue::new(component).range(range.clone()).speed(speed),
-                                ));
-                            });
-                        }
-                    });
-                });
-
-                responses.into_inner().unwrap()
+            struct LineUi<'a> {
+                generate: bool,
+                ui: &'a mut Ui,
             }
 
-            if ui.button("Delete.").clicked() {
+            impl LineUi<'_> {
+                fn gap(&mut self) {
+                    self.ui.add_space(10.);
+                }
+
+                fn single<T: bevy_egui::egui::emath::Numeric>(
+                    &mut self,
+                    value: &mut T,
+                    name: &str,
+                    allowed_range: RangeInclusive<T>,
+                    speed: f32,
+                ) {
+                    self.ui.label(name);
+                    if self
+                        .ui
+                        .add(DragValue::new(value).speed(speed).range(allowed_range))
+                        .changed()
+                    {
+                        self.generate = true;
+                    }
+                    self.gap();
+                }
+
+                fn vec<const N: usize, T: bevy_egui::egui::emath::Numeric>(
+                    &mut self,
+                    vec_and_component_names: [(&mut T, &str); N],
+                    name: &str,
+                    allowed_range: RangeInclusive<T>,
+                    speed: f32,
+                ) {
+                    let mut responses = ArrayVec::<_, N>::new();
+
+                    self.ui.vertical(|ui| {
+                        ui.label(name);
+
+                        ui.horizontal(|ui| {
+                            for (component, name) in vec_and_component_names {
+                                ui.vertical(|ui| {
+                                    ui.label(name);
+                                    responses.push(
+                                        ui.add(
+                                            DragValue::new(component)
+                                                .range(allowed_range.clone())
+                                                .speed(speed),
+                                        ),
+                                    );
+                                });
+                            }
+                        });
+                    });
+
+                    if responses.into_inner().unwrap().union().changed() {
+                        self.generate = true;
+                    }
+
+                    self.gap();
+                }
+
+                fn range<T: bevy_egui::egui::emath::Numeric>(
+                    &mut self,
+                    range: &mut RangeInclusive<T>,
+                    name: &str,
+                    allowed_range: RangeInclusive<T>,
+                    speed: f32,
+                ) {
+                    let mut range_start = *range.start();
+                    let mut range_end = *range.end();
+
+                    let vec_and_component_names =
+                        [(&mut range_start, "min"), (&mut range_end, "max")];
+
+                    let mut responses = ArrayVec::<_, 2>::new();
+
+                    self.ui.vertical(|ui| {
+                        ui.label(name);
+
+                        ui.horizontal(|ui| {
+                            for (component, name) in vec_and_component_names {
+                                ui.vertical(|ui| {
+                                    ui.label(name);
+                                    responses.push(
+                                        ui.add(
+                                            DragValue::new(component)
+                                                .range(allowed_range.clone())
+                                                .speed(speed),
+                                        ),
+                                    );
+                                });
+                            }
+                        });
+                    });
+
+                    if responses.into_inner().unwrap().union().changed() {
+                        *range = range_start..=range_end;
+                        self.generate = true;
+                    }
+
+                    self.gap();
+                }
+            }
+
+            let mut ui = LineUi {
+                generate: false,
+                ui,
+            };
+
+            if ui.ui.button("Delete.").clicked() {
                 TerrainLine::delete(line_entity, &mut commands, &generated);
                 line_selected.0 = None;
             }
 
-            ui.add_space(10.);
+            ui.gap();
 
             if ui
+                .ui
                 .button(format!("Randomise Seed!\n{}", line.seed))
                 .clicked()
             {
-                line.generate = true;
+                ui.generate = true;
                 line.seed = thread_rng().next_u64();
             }
 
-            ui.add_space(10.);
+            ui.gap();
 
-            if vec_ui(
-                ui,
+            ui.vec(
                 [(&mut line.spacing.x, "x"), (&mut line.spacing.y, "y")],
                 "spacing",
                 1.0..=f32::INFINITY,
                 1.,
-            )
-            .union()
-            .changed()
-            {
-                line.generate = true;
-            }
+            );
 
-            ui.add_space(10.);
-
-            if vec_ui(
-                ui,
-                [
-                    (&mut line.offset_y_bounds.start, "min"),
-                    (&mut line.offset_y_bounds.end, "max"),
-                ],
+            ui.range(
+                &mut line.offset_y_bounds,
                 "offset_y_bounds",
                 f32::NEG_INFINITY..=f32::INFINITY,
                 1.,
-            )
-            .union()
-            .changed()
-            {
-                line.generate = true;
-            }
+            );
 
-            ui.add_space(10.);
-
-            if vec_ui(
-                ui,
-                [
-                    (&mut line.offset_y_change.start, "min"),
-                    (&mut line.offset_y_change.end, "max"),
-                ],
+            ui.range(
+                &mut line.offset_y_change,
                 "offset_y_change",
                 f32::NEG_INFINITY..=f32::INFINITY,
                 1.,
-            )
-            .union()
-            .changed()
-            {
-                line.generate = true;
-            }
+            );
 
-            ui.add_space(10.);
-
-            if vec_ui(
-                ui,
-                [
-                    (&mut line.roughness.start, "min"),
-                    (&mut line.roughness.end, "max"),
-                ],
+            ui.range(
+                &mut line.roughness,
                 "roughness",
                 f32::NEG_INFINITY..=f32::INFINITY,
                 1.,
-            )
-            .union()
-            .changed()
-            {
-                line.generate = true;
-            }
+            );
 
-            ui.add_space(10.);
-
-            if vec_ui(
-                ui,
-                [
-                    (&mut line.jitter_x.start, "min"),
-                    (&mut line.jitter_x.end, "max"),
-                ],
+            ui.range(
+                &mut line.jitter_x,
                 "jitter_x",
                 f32::NEG_INFINITY..=f32::INFINITY,
                 1.,
-            )
-            .union()
-            .changed()
-            {
-                line.generate = true;
-            }
+            );
 
-            ui.add_space(10.);
-
-            if vec_ui(
-                ui,
-                [
-                    (&mut line.jitter_y.start, "min"),
-                    (&mut line.jitter_y.end, "max"),
-                ],
+            ui.range(
+                &mut line.jitter_y,
                 "jitter_y",
                 f32::NEG_INFINITY..=f32::INFINITY,
                 1.,
-            )
-            .union()
-            .changed()
-            {
-                line.generate = true;
+            );
+
+            ui.single(&mut line.depth, "depth", 1..=u32::MAX, 1.);
+
+            ui.single(
+                &mut line.upwards_offset,
+                "upwards_offset",
+                f32::NEG_INFINITY..=f32::INFINITY,
+                1.,
+            );
+
+            ui.single(&mut line.z, "z", f32::NEG_INFINITY..=f32::INFINITY, 1.);
+
+            ui.single(&mut line.diameter, "diameter", 0.0..=f32::INFINITY, 1.);
+
+            ui.ui.label("colour");
+            if color_picker::color_edit_button_rgb(ui.ui, &mut line.colour).changed() {
+                ui.generate = true;
             }
 
-            ui.add_space(10.);
+            ui.gap();
 
-            ui.label("depth");
-            if ui
-                .add(DragValue::new(&mut line.depth).speed(1).range(1..=u32::MAX))
-                .changed()
-            {
-                line.generate = true;
+            if ui.ui.checkbox(&mut line.collision, "collision").changed() {
+                ui.generate = true;
             }
 
-            ui.add_space(10.);
+            ui.gap();
 
-            ui.label("upwards_offset");
-            if ui
-                .add(DragValue::new(&mut line.upwards_offset).speed(1.))
-                .changed()
-            {
+            if ui.generate {
                 line.generate = true;
             }
-
-            ui.add_space(10.);
-
-            ui.label("z");
-            if ui.add(DragValue::new(&mut line.z).speed(1.)).changed() {
-                line.generate = true;
-            }
-
-            ui.add_space(10.);
-
-            ui.label("diameter");
-            if ui
-                .add(DragValue::new(&mut line.diameter).speed(1.))
-                .changed()
-            {
-                line.generate = true;
-            }
-
-            ui.add_space(10.);
-
-            ui.label("colour");
-            if color_picker::color_edit_button_rgb(ui, &mut line.colour).changed() {
-                line.generate = true;
-            }
-
-            ui.add_space(10.);
-
-            if ui.checkbox(&mut line.collision, "collision").changed() {
-                line.generate = true;
-            }
-
-            ui.add_space(10.);
         });
     }
 }
@@ -1194,15 +1194,15 @@ struct TerrainLine {
     spacing: Vec2,
 
     // Offset y translates y and creeps randomly up and down.
-    offset_y_bounds: Range<f32>,
-    offset_y_change: Range<f32>,
+    offset_y_bounds: RangeInclusive<f32>,
+    offset_y_change: RangeInclusive<f32>,
 
     // Randomly translates y, to make the terrain look rough or smooth.
-    roughness: Range<f32>,
+    roughness: RangeInclusive<f32>,
 
     // The jitter of every nodule
-    jitter_x: Range<f32>,
-    jitter_y: Range<f32>,
+    jitter_x: RangeInclusive<f32>,
+    jitter_y: RangeInclusive<f32>,
 
     // How many nodules we shall spawn in a downwards direction.
     // 1 means there will be 1 nodule.
@@ -1239,13 +1239,13 @@ impl TerrainLine {
 
             spacing: Vec2::splat(20.),
 
-            offset_y_bounds: (30. * -5.)..(30. * 5.),
-            offset_y_change: -20.0..20.0,
+            offset_y_bounds: (30. * -5.)..=(30. * 5.),
+            offset_y_change: -20.0..=20.0,
 
-            roughness: 0.0..0.0,
+            roughness: 0.0..=0.0,
 
-            jitter_x: -5.0..5.0,
-            jitter_y: -5.0..5.0,
+            jitter_x: -5.0..=5.0,
+            jitter_y: -5.0..=5.0,
 
             depth: 1,
             upwards_offset: 0.,
@@ -1325,14 +1325,14 @@ impl TerrainLine {
     }
 
     /// Generates the lines when they load.
-    fn on_load(
-        mut load_finish: EventReader<LoadFinish>,
-        mut commands: Commands,
-    ) {
+    fn on_load(mut load_finish: EventReader<LoadFinish>, mut commands: Commands) {
         load_finish.read().for_each(|load_finish| {
-            commands.entity(load_finish.0).entry::<Self>().and_modify(|mut line| {
-                line.generate = true;
-            });
+            commands
+                .entity(load_finish.0)
+                .entry::<Self>()
+                .and_modify(|mut line| {
+                    line.generate = true;
+                });
         });
     }
 
@@ -1376,16 +1376,16 @@ impl TerrainLine {
                 // Cheeky using this let statement to also show other debug info.
                 gizmos.line_2d(
                     point_1.translation.xy()
-                        + Vec2::new(0., line.offset_y_bounds.start + line.upwards_offset),
+                        + Vec2::new(0., line.offset_y_bounds.start() + line.upwards_offset),
                     point_2.translation.xy()
-                        + Vec2::new(0., line.offset_y_bounds.start + line.upwards_offset),
+                        + Vec2::new(0., line.offset_y_bounds.start() + line.upwards_offset),
                     Color::srgb(0.0, 0.5, 0.0),
                 );
                 gizmos.line_2d(
                     point_1.translation.xy()
-                        + Vec2::new(0., line.offset_y_bounds.end + line.upwards_offset),
+                        + Vec2::new(0., line.offset_y_bounds.end() + line.upwards_offset),
                     point_2.translation.xy()
-                        + Vec2::new(0., line.offset_y_bounds.end + line.upwards_offset),
+                        + Vec2::new(0., line.offset_y_bounds.end() + line.upwards_offset),
                     Color::srgb(0.0, 0.5, 0.0),
                 );
 
@@ -1455,15 +1455,15 @@ impl TerrainLine {
             let x = nodule_x as f32 * self.spacing.x;
             let y = x * gradient;
 
-            offset_y += rng.gen_range_allow_empty(self.offset_y_change.clone());
-            offset_y = offset_y.clamp(self.offset_y_bounds.start, self.offset_y_bounds.end);
+            offset_y += rng.gen_range(self.offset_y_change.clone());
+            offset_y = offset_y.clamp(*self.offset_y_bounds.start(), *self.offset_y_bounds.end());
 
-            let roughness = rng.gen_range_allow_empty(self.roughness.clone());
+            let roughness = rng.gen_range(self.roughness.clone());
 
             for depth in 0..self.depth {
                 let jitter = Vec2::new(
-                    rng.gen_range_allow_empty(self.jitter_x.clone()),
-                    rng.gen_range_allow_empty(self.jitter_y.clone()),
+                    rng.gen_range(self.jitter_x.clone()),
+                    rng.gen_range(self.jitter_y.clone()),
                 );
 
                 let translation = Vec2::new(
@@ -1483,60 +1483,6 @@ impl TerrainLine {
 
 pub fn squared(value: f32) -> f32 {
     value * value
-}
-
-trait RangeStartEnd<T> {
-    fn start(&self) -> T;
-    fn end(&self) -> T;
-}
-
-impl<T: Copy> RangeStartEnd<T> for Range<T> {
-    fn start(&self) -> T {
-        self.start
-    }
-
-    fn end(&self) -> T {
-        self.end
-    }
-}
-
-trait NotEmptyRange: Sized {
-    fn not_empty_range() -> Range<Self>;
-}
-
-impl NotEmptyRange for f32 {
-    fn not_empty_range() -> Range<Self> {
-        0.0..1.0
-    }
-}
-
-impl NotEmptyRange for f64 {
-    fn not_empty_range() -> Range<Self> {
-        0.0..1.0
-    }
-}
-
-trait RngExtension {
-    fn gen_range_allow_empty<T, R>(&mut self, range: R) -> T
-    where
-        T: SampleUniform + PartialEq + NotEmptyRange + PartialOrd,
-        R: SampleRange<T> + RangeStartEnd<T>;
-}
-
-impl<Rng: RngCore> RngExtension for Rng {
-    fn gen_range_allow_empty<T, R>(&mut self, range: R) -> T
-    where
-        T: SampleUniform + PartialEq + NotEmptyRange + PartialOrd,
-        R: SampleRange<T> + RangeStartEnd<T>,
-    {
-        if range.start() == range.end() {
-            // We still need to nudge the rng along, but we don't want the result, as it is unspecified nonsense.
-            T::not_empty_range().sample_single(self);
-            range.start()
-        } else {
-            range.sample_single(self)
-        }
-    }
 }
 
 #[derive(Resource, Default)]
