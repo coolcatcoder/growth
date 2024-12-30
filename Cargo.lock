@@ -2366,6 +2366,7 @@ dependencies = [
  "derive_more 1.0.0",
  "leafwing-input-manager",
  "log",
+ "paste",
  "procedural_macros",
  "rand",
  "rayon",
@@ -3572,6 +3573,7 @@ dependencies = [
 name = "procedural_macros"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "proc-macro2",
  "quote",
  "syn",

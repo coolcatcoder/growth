@@ -12,12 +12,13 @@
 // Unstable features:
 #![feature(generic_const_exprs)]
 #![feature(maybe_uninit_array_assume_init)]
+#![feature(macro_metavar_expr)]
+#![feature(macro_metavar_expr_concat)]
 
 use std::ops::{Range, RangeInclusive};
 
 use arrayvec::ArrayVec;
 use bevy::{
-    asset::LoadedFolder,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     ecs::query::QueryFilter,
     window::PrimaryWindow,
@@ -39,74 +40,42 @@ mod time;
 mod tree;
 
 mod prelude {
-    pub use super::{squared, Action, GizmosLingering, Grower, NoduleConfig, Terrain};
+    pub use super::{
+        squared, Action, GizmosLingering, Grower, NoduleConfig, QueryExtensions, Terrain,
+        WorldOrCommands,
+    };
     pub use crate::{
-        collision::prelude::*, ground::prelude::*, load_system, ok_or_error_and_return, particle,
+        collision::prelude::*, ground::prelude::*, ok_or_error_and_return, particle,
         player::prelude::*, saving::prelude::*, some_or_return, sun::prelude::*, time::prelude::*,
         tree::prelude::*,
     };
     pub use bevy::{
+        asset::LoadedFolder,
         ecs::{
             query::{QueryData, WorldQuery},
             system::{EntityCommands, SystemParam},
         },
         prelude::*,
-        utils::Parallel,
+        utils::{HashMap, Parallel},
     };
+    pub use bevy_common_assets::json::JsonAssetPlugin;
     pub use derive_more::{Deref, DerefMut};
     pub use leafwing_input_manager::prelude::*;
+    pub use paste::paste;
+    pub use procedural_macros::*;
     pub use rand::prelude::*;
     pub use rayon::prelude::*;
-    pub use std::time::Duration;
+    pub use serde::{Deserialize, Serialize};
+    pub use std::{
+        fs::{self, File},
+        path::Path,
+        time::Duration,
+    };
 }
-use bevy_common_assets::json::JsonAssetPlugin;
+
 use prelude::*;
 use rand::distributions::uniform::{SampleRange, SampleUniform};
-use serde::{Deserialize, Serialize};
-
-//MARK: unwrap
-/// Either some, or it returns optionally with a value.
-#[macro_export]
-macro_rules! some_or_return {
-    ($option:expr) => {
-        if let Some(value) = $option {
-            value
-        } else {
-            return;
-        }
-    };
-
-    ($option:expr, $return:expr) => {
-        if let Some(value) = $option {
-            value
-        } else {
-            return $return;
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! ok_or_error_and_return {
-    ($result:expr) => {
-        match $result {
-            Ok(result) => result,
-            Err(error) => {
-                error!("{error}");
-                return;
-            }
-        }
-    };
-
-    ($result:expr, $message:expr) => {
-        match $result {
-            Ok(result) => result,
-            Err(error) => {
-                error!("{} {error}", $message);
-                return;
-            }
-        }
-    };
-}
+use saving::AppSaveAndLoad;
 
 // The world is dying. Save it. The sun will eventually hit the world. Hope they realise that sooner rather than later!
 // Energy is area, roughly 1 energy for 700 area (30 diameter circle). You can only store as much energy as your area will allow.
@@ -127,7 +96,6 @@ fn main() {
             //LogDiagnosticsPlugin::default(),
             InputManagerPlugin::<Action>::default(),
             RunEveryPlugin,
-            JsonAssetPlugin::<SerialiseableTerrainLine>::new(&["line.json"]),
             EguiPlugin,
         ))
         .add_systems(Startup, setup)
@@ -137,8 +105,6 @@ fn main() {
                 LineSelected::ui,
                 (StartSave::prepare, StartLoad::prepare),
                 (
-                    TerrainLine::load,
-                    TerrainLine::save,
                     TerrainLine::generate,
                     TerrainLine::validate,
                     TerrainLine::debug,
@@ -197,14 +163,17 @@ fn main() {
         .init_resource::<CursorWorldTranslation>()
         .init_resource::<CursorPreviousWorldTranslation>()
         .init_resource::<LineSelected>()
-        .init_resource::<EntityToIndex>()
-        .init_resource::<IndexToEntity>()
+        .init_resource::<SerialiseEntity>()
+        .init_resource::<DeserialiseEntity>()
         .insert_resource(Action::default_input_map())
         .insert_resource(ColliderGrid::new(GRID_ORIGIN))
         .add_event::<StartSave>()
         .add_event::<Save>()
         .add_event::<StartLoad>()
         .add_event::<Load>()
+        .save_and_load::<TerrainLine>()
+        .save_and_load::<TerrainPoint>()
+        .save_and_load::<SaveConfig>()
         .run();
 }
 
@@ -507,7 +476,7 @@ fn setup(
     mut start_load: EventWriter<StartLoad>,
 ) {
     // Temporary as for now we care only for the world.
-    start_load.send(StartLoad(Situation::World));
+    start_load.send(StartLoad("./map".into()));
 
     let mut rng: ThreadRng = thread_rng();
 
@@ -815,8 +784,10 @@ pub fn update_cursor_translation(
     }
 }
 
+//MARK: TerrainPoint
 /// A point that can be used in terrain lines.
-#[derive(Component, Default)]
+#[derive(Component, Default, SaveAndLoad)]
+#[location("./map")]
 pub struct TerrainPoint {
     selected: bool,
 }
@@ -832,6 +803,9 @@ impl TerrainPoint {
     ) {
         if actions.just_pressed(&Action::AddPoint) {
             commands.spawn((
+                SaveConfig {
+                    path: "./map".into()
+                },
                 TerrainPoint::default(),
                 Transform::from_translation(Vec3::new(translation.0.x, translation.0.y, 0.)),
             ));
@@ -942,10 +916,12 @@ impl TerrainPoint {
                     info!("Created a line!");
                     line_selected.0 = Some(
                         commands
-                            .spawn(TerrainLine::new((
-                                points_selected[0].0,
-                                points_selected[1].0,
-                            )))
+                            .spawn((
+                                SaveConfig {
+                                    path: "./map".into(),
+                                },
+                                TerrainLine::new((points_selected[0].0, points_selected[1].0)),
+                            ))
                             .id(),
                     );
                 }
@@ -1200,30 +1176,10 @@ impl LineSelected {
     }
 }
 
-/// Allows us to serialize the terrain lines.
-#[derive(Serialize, Deserialize, Asset, TypePath)]
-struct SerialiseableTerrainLine {
-    // Entity is opaque, so we just our own index, to keep track of everything.
-    point_1: u32,
-    point_2: u32,
-
-    seed: u64,
-    spacing: Vec2,
-    offset_y_bounds: Range<f32>,
-    offset_y_change: Range<f32>,
-    roughness: Range<f32>,
-    jitter_x: Range<f32>,
-    jitter_y: Range<f32>,
-    depth: u32,
-    upwards_offset: f32,
-    z: f32,
-    diameter: f32,
-    colour: [f32; 3],
-    collision: bool,
-}
-
 /// A bunch of circles that look like terrain hopefully.
-#[derive(Component)]
+#[derive(Component, SaveAndLoad)]
+#[location("./map")]
+#[unload(BelongsToTerrain)]
 struct TerrainLine {
     point_1: Entity,
     point_2: Entity,
@@ -1311,7 +1267,7 @@ impl TerrainLine {
     ) {
         lines.iter_mut().for_each(|(line_entity, mut line)| {
             if line.generate {
-                line.generate = false;
+                info!("Starting generation of a line.");
 
                 // Despawn all generated entities related to this line.
                 generated.iter().for_each(|(generated_entity, generated)| {
@@ -1327,6 +1283,9 @@ impl TerrainLine {
                 let Ok(point_2_transform) = points.get(line.point_2) else {
                     return;
                 };
+
+                // Must go after we know all points have loaded properly.
+                line.generate = false;
 
                 // We need x ordering, due to a bug in the line function.
                 let (point_1, point_2) =
@@ -1363,164 +1322,6 @@ impl TerrainLine {
                 Self::delete(entity, &mut commands, &generated);
             }
         });
-    }
-
-    /// Saves every line to an individual file.
-    fn save(
-        lines: Query<&Self>,
-        mut save: EventReader<Save>,
-        mut entity_to_index: ResMut<EntityToIndex>,
-    ) {
-        save.read().for_each(|save| {
-            if !matches!(save.0, Situation::Lines) {
-                return;
-            }
-
-            Save::prepare_path("./lines");
-            info!("Save lines.");
-
-            lines.iter().for_each(|line| {
-                let point_1 = entity_to_index.convert(line.point_1);
-                let point_2 = entity_to_index.convert(line.point_2);
-
-                let serialiseable_line = SerialiseableTerrainLine {
-                    point_1,
-                    point_2,
-                    seed: line.seed,
-                    spacing: line.spacing,
-                    offset_y_bounds: line.offset_y_bounds.clone(),
-                    offset_y_change: line.offset_y_change.clone(),
-                    roughness: line.roughness.clone(),
-                    jitter_x: line.jitter_x.clone(),
-                    jitter_y: line.jitter_y.clone(),
-                    depth: line.depth,
-                    upwards_offset: line.upwards_offset,
-                    z: line.z,
-                    diameter: line.diameter,
-                    colour: line.colour,
-                    collision: line.collision,
-                };
-
-                // Between 2 points there should only be 1 lines, so we can be certain that this is a unique file name.
-                Save::to_file(
-                    format!("./lines/{point_1}_{point_2}.line.json"),
-                    &serialiseable_line,
-                );
-            });
-        });
-    }
-
-    fn spawner(
-        line_to_load: SerialiseableTerrainLine,
-        index_to_entity: &mut IndexToEntity,
-        commands: &mut Commands,
-    ) {
-        let point_1 = index_to_entity.convert(line_to_load.point_1, commands);
-        let point_2 = index_to_entity.convert(line_to_load.point_2, commands);
-
-        commands.spawn(TerrainLine {
-            point_1,
-            point_2,
-            generate: true,
-            seed: line_to_load.seed,
-            spacing: line_to_load.spacing,
-            offset_y_bounds: line_to_load.offset_y_bounds.clone(),
-            offset_y_change: line_to_load.offset_y_change.clone(),
-            roughness: line_to_load.roughness.clone(),
-            jitter_x: line_to_load.jitter_x.clone(),
-            jitter_y: line_to_load.jitter_y.clone(),
-            depth: line_to_load.depth,
-            upwards_offset: line_to_load.upwards_offset,
-            z: line_to_load.z,
-            diameter: line_to_load.diameter,
-            colour: line_to_load.colour,
-            collision: line_to_load.collision,
-        });
-    }
-
-    fn despawner(
-        (lines, belongs_to_terrain): &mut (
-            Query<Entity, With<TerrainLine>>,
-            Query<Entity, With<BelongsToTerrain>>,
-        ),
-        commands: &mut Commands,
-    ) {
-        lines.despawn_all(commands);
-        belongs_to_terrain.despawn_all(commands);
-    }
-
-    load_system!(serialised: SerialiseableTerrainLine, spawn_parameters: ResMut<IndexToEntity>, despawn_parameters: (Query<Entity, With<TerrainLine>>, Query<Entity, With<BelongsToTerrain>>), spawner: Self::spawner, despawner: Self::despawner);
-
-    /// Deloads any current lines, and then loads the lines from the files.
-    fn load_old(
-        mut load: EventReader<Load>,
-        mut loaded_folders: ResMut<Assets<LoadedFolder>>,
-        serialised_lines: Res<Assets<SerialiseableTerrainLine>>,
-        asset_server: Res<AssetServer>,
-        mut folder_handle: Local<Option<Handle<LoadedFolder>>>,
-        mut index_to_entity: ResMut<IndexToEntity>,
-        mut commands: Commands,
-        lines: Query<Entity, With<TerrainLine>>,
-        belongs_to_terrain: Query<Entity, With<BelongsToTerrain>>,
-    ) {
-        if let Some(handle) = folder_handle.as_ref() {
-            let lines_to_load = some_or_return!(loaded_folders.get_mut(handle));
-
-            if lines_to_load.handles.is_empty() {
-                *folder_handle = None;
-                info!("Finished loading lines folder.");
-            } else {
-                // This while loop removes handles as they load.
-                let mut index = lines_to_load.handles.len();
-                while index != 0 {
-                    index -= 1;
-                    let line_id = ok_or_error_and_return!(
-                        lines_to_load.handles[index]
-                            .id()
-                            .try_typed::<SerialiseableTerrainLine>(),
-                        "Tried to load line. Got error:"
-                    );
-                    if let Some(line_to_load) = serialised_lines.get(line_id) {
-                        // Iterating backwards, so this is fine.
-                        lines_to_load.handles.swap_remove(index);
-
-                        let point_1 = index_to_entity.convert(line_to_load.point_1, &mut commands);
-                        let point_2 = index_to_entity.convert(line_to_load.point_2, &mut commands);
-
-                        commands.spawn(TerrainLine {
-                            point_1,
-                            point_2,
-                            generate: true,
-                            seed: line_to_load.seed,
-                            spacing: line_to_load.spacing,
-                            offset_y_bounds: line_to_load.offset_y_bounds.clone(),
-                            offset_y_change: line_to_load.offset_y_change.clone(),
-                            roughness: line_to_load.roughness.clone(),
-                            jitter_x: line_to_load.jitter_x.clone(),
-                            jitter_y: line_to_load.jitter_y.clone(),
-                            depth: line_to_load.depth,
-                            upwards_offset: line_to_load.upwards_offset,
-                            z: line_to_load.z,
-                            diameter: line_to_load.diameter,
-                            colour: line_to_load.colour,
-                            collision: line_to_load.collision,
-                        });
-
-                        info!("Loaded a line!");
-                    }
-                }
-            }
-        } else {
-            load.read().for_each(|load| {
-                if !matches!(load.0, Situation::World) {
-                    return;
-                }
-
-                *folder_handle = Some(asset_server.load_folder("./saves/lines"));
-
-                info!("Loading lines folder!");
-            });
-        }
     }
 
     /// Deletes itself properly. Makes sure to delete every generated entity aswell.
@@ -1792,7 +1593,7 @@ impl<const N: usize> ResponseArray for [Response; N] {
 }
 
 //MARK: Query Ext
-trait QueryExtensions {
+pub trait QueryExtensions {
     // owned query or borrow query??? Or generic get query from world???
     fn despawn_all(&self, commands: &mut Commands);
 }
@@ -1805,4 +1606,78 @@ impl<F: QueryFilter> QueryExtensions for Query<'_, '_, Entity, F> {
             }
         });
     }
+}
+
+//MARK: World or Commands
+pub trait WorldOrCommands {
+    fn spawn_empty_and_get_id(&mut self) -> Entity;
+}
+
+impl WorldOrCommands for Commands<'_, '_> {
+    fn spawn_empty_and_get_id(&mut self) -> Entity {
+        self.spawn_empty().id()
+    }
+}
+
+impl WorldOrCommands for World {
+    fn spawn_empty_and_get_id(&mut self) -> Entity {
+        self.spawn_empty().id()
+    }
+}
+
+// erase_idents! {
+// fn blah() {
+//     let mut silly: u32 = 5;
+//     // Comment that explains everything.
+//     silly = 10;
+//     {
+//         let grah = 3;
+//     }
+//     error!("oh no");
+// }
+// }
+
+//MARK: unwrap
+/// Either some, or it returns optionally with a value.
+#[macro_export]
+macro_rules! some_or_return {
+    ($option:expr) => {
+        if let Some(value) = $option {
+            value
+        } else {
+            return;
+        }
+    };
+
+    ($option:expr, $return:expr) => {
+        if let Some(value) = $option {
+            value
+        } else {
+            return $return;
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! ok_or_error_and_return {
+    ($result:expr) => {
+        match $result {
+            Ok(result) => result,
+            Err(error) => {
+                error!("{error}");
+                return;
+            }
+        }
+    };
+
+    // Instead of an expression at the end, accept any tokens, and do format!("{} {error}", format!(tokens)).
+    ($result:expr, $message:expr) => {
+        match $result {
+            Ok(result) => result,
+            Err(error) => {
+                error!("{} {error}", $message);
+                return;
+            }
+        }
+    };
 }
