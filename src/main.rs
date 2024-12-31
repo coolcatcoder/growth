@@ -963,6 +963,7 @@ impl LineSelected {
         mut line_selected: ResMut<LineSelected>,
         mut lines: Query<&mut TerrainLine>,
         generated: Query<(Entity, &BelongsToTerrain)>,
+        mut copied: Local<Option<TerrainLine>>,
     ) {
         let Some(line_entity) = line_selected.0 else {
             return;
@@ -1103,6 +1104,23 @@ impl LineSelected {
 
             ui.gap();
 
+            if ui.ui.button("copy").clicked() {
+                *copied = Some(line.clone());
+            }
+
+            if let Some(copied) = &mut *copied {
+                if ui.ui.button("paste").clicked() {
+                    copied.point_1 = line.point_1;
+                    copied.point_2 = line.point_2;
+                    copied.seed = line.seed;
+
+                    *line = copied.clone();
+                    line.generate = true;
+                }
+            }
+
+            ui.gap();
+
             ui.vec(
                 [(&mut line.spacing.x, "x"), (&mut line.spacing.y, "y")],
                 "spacing",
@@ -1179,7 +1197,7 @@ impl LineSelected {
 }
 
 /// A bunch of circles that look like terrain hopefully.
-#[derive(Component, SaveAndLoad)]
+#[derive(Component, SaveAndLoad, Clone)]
 struct TerrainLine {
     point_1: Entity,
     point_2: Entity,
