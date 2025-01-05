@@ -1,7 +1,6 @@
 use bevy::ecs::system::EntityCommands;
 
 pub use crate::prelude::*;
-use crate::LineCustomiserInfo;
 
 pub mod prelude {
     //pub use super::{Leaf, Tree};
@@ -91,83 +90,83 @@ impl WibblyGrass {
         });
     }
 
-    pub fn create<const X: i32, const WIDTH: u16>(info: LineCustomiserInfo) -> bool {
-        if info.nodule_translation.y == 0 && (info.translation.x - X as f32).abs() < 60. {
-            info.terrain
-                .create(
-                    NoduleConfig {
-                        depth: 1.,
-                        colour: [0.21, 0., 0.25],
-                        collision: false,
-                        ..default()
-                    },
-                    info.translation,
-                )
-                .entry::<Sprite>()
-                .and_modify(move |mut sprite| {
-                    sprite.custom_size = Some(Vec2::new(WIDTH as f32, 30.));
-                });
+    // pub fn create<const X: i32, const WIDTH: u16>(info: LineCustomiserInfo) -> bool {
+    //     if info.nodule_translation.y == 0 && (info.translation.x - X as f32).abs() < 60. {
+    //         info.terrain
+    //             .create(
+    //                 NoduleConfig {
+    //                     depth: 1.,
+    //                     colour: [0.21, 0., 0.25],
+    //                     collision: false,
+    //                     ..default()
+    //                 },
+    //                 info.translation,
+    //             )
+    //             .entry::<Sprite>()
+    //             .and_modify(move |mut sprite| {
+    //                 sprite.custom_size = Some(Vec2::new(WIDTH as f32, 30.));
+    //             });
 
-            for x in 0..5 {
-                let x = x as f32 * 10. - (WIDTH as f32 / 2.);
+    //         for x in 0..5 {
+    //             let x = x as f32 * 10. - (WIDTH as f32 / 2.);
 
-                let mut links = Vec::with_capacity(15);
-                for y in 1..=15 {
-                    let translation = info.translation + Vec2::new(x, y as f32 * 5.);
+    //             let mut links = Vec::with_capacity(15);
+    //             for y in 1..=15 {
+    //                 let translation = info.translation + Vec2::new(x, y as f32 * 5.);
 
-                    let link = info
-                        .terrain
-                        .create(
-                            NoduleConfig {
-                                depth: 1.,
-                                colour: [0.21, 0., 0.25],
-                                collision: false,
-                                diameter: 5.,
-                                ..default()
-                            },
-                            translation,
-                        )
-                        .id();
+    //                 let link = info
+    //                     .terrain
+    //                     .create(
+    //                         NoduleConfig {
+    //                             depth: 1.,
+    //                             colour: [0.21, 0., 0.25],
+    //                             collision: false,
+    //                             diameter: 5.,
+    //                             ..default()
+    //                         },
+    //                         translation,
+    //                     )
+    //                     .id();
 
-                    links.push((5., link, translation));
-                }
+    //                 links.push((5., link, translation));
+    //             }
 
-                let target = info
-                    .terrain
-                    .commands
-                    .spawn(TransformBundle::from_transform(
-                        Transform::from_translation(Vec3::new(
-                            info.translation.x,
-                            info.translation.y + Self::REST_Y,
-                            0.,
-                        )),
-                    ))
-                    .id();
+    //             let target = info
+    //                 .terrain
+    //                 .commands
+    //                 .spawn(TransformBundle::from_transform(
+    //                     Transform::from_translation(Vec3::new(
+    //                         info.translation.x,
+    //                         info.translation.y + Self::REST_Y,
+    //                         0.,
+    //                     )),
+    //                 ))
+    //                 .id();
 
-                let mut anchor = info.terrain.commands.spawn(TransformBundle::from_transform(
-                    Transform::from_translation(Vec3::new(
-                        info.translation.x + x,
-                        info.translation.y,
-                        0.,
-                    )),
-                ));
+    //             let mut anchor = info.terrain.commands.spawn(TransformBundle::from_transform(
+    //                 Transform::from_translation(Vec3::new(
+    //                     info.translation.x + x,
+    //                     info.translation.y,
+    //                     0.,
+    //                 )),
+    //             ));
 
-                let anchor_id = anchor.id();
+    //             let anchor_id = anchor.id();
 
-                anchor.insert((
-                    particle::Chain {
-                        anchor: anchor_id,
-                        links,
-                        target: Some(target),
-                    },
-                    WibblyGrass {},
-                ));
-            }
-            true
-        } else {
-            false
-        }
-    }
+    //             anchor.insert((
+    //                 particle::Chain {
+    //                     anchor: anchor_id,
+    //                     links,
+    //                     target: Some(target),
+    //                 },
+    //                 WibblyGrass {},
+    //             ));
+    //         }
+    //         true
+    //     } else {
+    //         false
+    //     }
+    // }
 }
 
 // IMPORTANT: I think I might abandon this... I kinda want grass that looks more similar to grass in rainworld. It would also be more performant.

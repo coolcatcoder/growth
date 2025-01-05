@@ -1,4 +1,5 @@
 mod save_and_load;
+mod registration;
 
 mod prelude {
     pub use proc_macro::TokenStream as StdTokenStream;
@@ -91,4 +92,17 @@ pub fn save_and_load_external(input: StdTokenStream) -> StdTokenStream {
     save_and_load::save_and_load(input)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
+}
+
+#[proc_macro_attribute]
+pub fn system(input: StdTokenStream, annotated_item: StdTokenStream) -> StdTokenStream {
+    registration::system(input.into(), annotated_item.into()).into()
+}
+
+#[proc_macro_attribute]
+pub fn init(input: StdTokenStream, annotated_item: StdTokenStream) -> StdTokenStream {
+    let derive_input = annotated_item.clone();
+    let derive_input = parse_macro_input!(derive_input as DeriveInput);
+
+    registration::init(input.into(), annotated_item.into(), derive_input).into()
 }

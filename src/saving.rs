@@ -274,8 +274,6 @@ pub trait SaveAndLoad: Sized + Component {
                         asset_server
                             .load_folder(Path::new(SAVE_PATH_RELATIVE_TO_ASSETS).join(&load.0)),
                     );
-
-                    info!("Loading folder!");
                 });
             }
             LoadingStage::GotFolderHandle(folder_handle) => {

@@ -1,0 +1,40 @@
+{
+  "point_1": 8,
+  "point_2": 9,
+  "generate": false,
+  "seed": 13134295745386762257,
+  "spacing": [
+    50.0,
+    50.0
+  ],
+  "offset_y_bounds": {
+    "start": 0.0,
+    "end": 0.0
+  },
+  "offset_y_change": {
+    "start": 0.0,
+    "end": 0.0
+  },
+  "roughness": {
+    "start": 0.0,
+    "end": 0.0
+  },
+  "jitter_x": {
+    "start": 0.0,
+    "end": 0.0
+  },
+  "jitter_y": {
+    "start": 0.0,
+    "end": 0.0
+  },
+  "depth": 15,
+  "upwards_offset": 0.0,
+  "z": 0.0,
+  "diameter": 50.0,
+  "colour": [
+    0.16037838,
+    0.8489422,
+    0.66761386
+  ],
+  "collision": true
+}

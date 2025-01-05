@@ -26,7 +26,7 @@ pub struct ColliderGrid<const WIDTH: usize, const HEIGHT: usize>
 where
     [(); WIDTH * HEIGHT]:,
 {
-    // Top left? I don't know!
+    // Bottom left? I don't know!
     pub origin: Vec2,
     //#[cfg(debug_assertions)]
     //pub debug_directions: Box<[(Vec<u8>)]>,

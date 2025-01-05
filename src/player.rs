@@ -9,21 +9,21 @@ pub mod prelude {
 #[derive(Component)]
 pub struct Player;
 
+/// Move all players based on their inputs.
 pub fn move_players(
-    time: Res<Time>,
     actions: Res<ActionState<Action>>,
-    mut players: Query<&mut particle::Velocity, With<Player>>,
+    mut players: Query<&mut Verlet, With<Player>>,
 ) {
-    const MOVE_SPEED: f32 = 100.; //50.;
+    const MOVE_SPEED: f32 = 1000.;
 
-    players.iter_mut().for_each(|mut velocity| {
-        let movement =
-            actions.clamped_axis_pair(&Action::Move).xy() * MOVE_SPEED * time.delta_secs();
+    players.iter_mut().for_each(|mut verlet| {
+        let movement = actions
+            .clamped_axis_pair(&Action::Move)
+            .xy()
+            .normalize_or_zero()
+            * MOVE_SPEED;
 
-        **velocity += movement;
-        velocity.y -= 0.5;
-
-        //info!("{}", motion.amount);
+        verlet.accelerate(movement);
     });
 }
 
