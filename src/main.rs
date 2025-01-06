@@ -31,7 +31,6 @@ mod ground;
 pub mod particle;
 mod plant;
 mod player;
-mod registration;
 mod saving;
 mod sun;
 mod time;
@@ -41,10 +40,10 @@ mod verlet;
 mod prelude {
     pub use super::{squared, Action, GizmosLingering, Grower, QueryExtensions, WorldOrCommands};
     pub use crate::{
-        app, collision::prelude::*, editor::prelude::*, ground::prelude::*, init_resource,
-        ok_or_error_and_return, particle, player::prelude::*, registration::prelude::*,
-        saving::prelude::*, some_or_return, sun::prelude::*, time::prelude::*, tree::prelude::*,
-        verlet::prelude::*,
+        collision::prelude::*, editor::prelude::*, ground::prelude::*,
+        ok_or_error_and_return, particle, player::prelude::*,
+        saving::prelude::*, some_or_return, sun::prelude::*,
+        time::prelude::*, tree::prelude::*, verlet::prelude::*,
     };
     pub use bevy::{
         asset::LoadedFolder,
@@ -69,10 +68,12 @@ mod prelude {
     pub use rayon::prelude::*;
     pub use serde::{Deserialize, Serialize};
     pub use std::{
+        any::TypeId,
         fs::{self, File},
         path::Path,
         time::Duration,
     };
+    pub use bevy_registration::prelude::*;
 }
 
 use prelude::*;
@@ -172,22 +173,10 @@ fn main() {
         // Maybe not...
         //.add_systems_that_run_every(Duration::from_secs_f64(1. / 5.), sync_player_transforms)
         //.add_systems_that_run_every(Duration::from_secs_f32(1.), || info!("blah"))
-        .init_resource::<GizmosLingering>()
         .init_resource::<CursorWorldTranslation>()
         .init_resource::<CursorPreviousWorldTranslation>()
         .init_resource::<LineSelected>()
-        .init_resource::<SerialiseEntity>()
-        .init_resource::<DeserialiseEntity>()
         .insert_resource(ColliderGrid::new(GRID_ORIGIN))
-        .add_event::<StartSave>()
-        .add_event::<Save>()
-        //.add_event::<LoadStart>()
-        .add_event::<Load>()
-        .add_event::<LoadFinish>()
-        .save_and_load::<TerrainLine>()
-        .save_and_load::<TerrainPoint>()
-        .save_and_load::<SaveConfig>()
-        .save_and_load::<Transform>()
         .run();
 }
 
@@ -1085,6 +1074,7 @@ pub fn squared(value: f32) -> f32 {
     value * value
 }
 
+#[init]
 #[derive(Resource, Default)]
 pub struct GizmosLingering(
     Parallel<(

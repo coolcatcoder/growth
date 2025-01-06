@@ -68,5 +68,9 @@ pub fn save_and_load(input: DeriveInput) -> syn::Result<TokenStream> {
             const STRUCT_IDENT_LOWERCASE: &str = #struct_ident_string_lowercase;
             const FILE_EXTENSION: &str = #file_extension;
         }
+
+        app!(|app| {
+            app.save_and_load::<#struct_ident>();
+        });
     })
 }

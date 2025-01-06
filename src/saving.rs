@@ -18,6 +18,7 @@ const SAVE_PATH_RELATIVE_TO_ASSETS: &str = "./saves";
 /// Called just before everything should save.
 /// This will make sure that everything is cleared out before sending the Save event.
 /// The string is the path relative to SAVE_PATH for safety.
+#[init]
 #[derive(Event)]
 pub struct StartSave(pub String);
 
@@ -59,6 +60,7 @@ impl StartSave {
 }
 
 /// An event that is called whenever everything should save.
+#[init]
 #[derive(Event)]
 pub struct Save(pub String);
 
@@ -109,6 +111,7 @@ impl Save {
 }
 
 /// Indicates to start loading from that path relative to SAVE_PATH.
+#[init]
 #[derive(Event)]
 pub struct LoadStart(pub String);
 
@@ -137,13 +140,17 @@ impl LoadStart {
 }
 
 /// Tells everything to load.
+#[init]
 #[derive(Event)]
 pub struct Load(pub String);
 
+/// Once we have finished loading an entity, this is sent out.
+#[init]
 #[derive(Event)]
 pub struct LoadFinish(pub Entity);
 
 /// Because Entity is opaque, we must convert it to something that will never change.
+#[init]
 #[derive(Resource, Default)]
 pub struct SerialiseEntity(HashMap<Entity, u32>, u32);
 
@@ -164,6 +171,7 @@ impl SerialiseEntity {
 /// The inverse of the previous.
 /// Converts indices to entities.
 // TODO: Does this need to be reset on load? Do we need to despawn all previously loaded entities? Yes. Why?
+#[init]
 #[derive(Resource, Default)]
 pub struct DeserialiseEntity(HashMap<u32, Entity>);
 

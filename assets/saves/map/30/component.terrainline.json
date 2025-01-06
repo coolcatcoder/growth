@@ -1,8 +1,8 @@
 {
-  "point_1": 15,
-  "point_2": 13,
+  "point_1": 19,
+  "point_2": 20,
   "generate": false,
-  "seed": 1751811687053264774,
+  "seed": 13134295745386762257,
   "spacing": [
     50.0,
     50.0
@@ -29,7 +29,7 @@
   },
   "depth": 15,
   "upwards_offset": 0.0,
-  "z": -0.5,
+  "z": 0.0,
   "diameter": 50.0,
   "colour": [
     0.16037838,

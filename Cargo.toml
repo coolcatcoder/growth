@@ -10,7 +10,8 @@ members = ["procedural_macros"]
 
 [dependencies]
 procedural_macros = {path="procedural_macros"}
-bevy = { version = "0.15", default-features = false, features = [
+bevy_registration = {path="../bevy_registration"}
+bevy = { version = "0.15.1", default-features = false, features = [
     "bevy_asset",
     "bevy_audio",
     "bevy_color",
