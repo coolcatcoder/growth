@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{AmbientFriction, Gravity, Verlet};
+    pub use super::{AmbientFriction, Gravity, Verlet, Grounded};
 }
 
 /// The fixed time between every update to the particle physics.
@@ -168,6 +168,7 @@ impl AmbientFriction {
     }
 }
 
+/// Applies a downward force to particles.
 #[derive(Component)]
 pub struct Gravity;
 
@@ -177,5 +178,35 @@ impl Gravity {
         particles.par_iter_mut().for_each(|mut particle| {
             particle.accelerate(Vec2::new(0., -98.));
         });
+    }
+}
+
+/// Is the particle touching the ground?
+#[derive(Component)]
+pub struct Grounded(bool);
+
+impl Grounded {
+    /// Checks for any collision between a particle with Grounded and a non-particle.
+    pub fn update(
+        grid: Res<ColliderGrid>,
+        mut particles: Query<(&mut Grounded, &Verlet, &Radius)>,
+        colliders: Query<(&Radius, &Transform), Without<Verlet>>,
+    ) {
+        particles
+            .par_iter_mut()
+            .for_each(|(mut grounded, particle, radius)| {
+                let Some(grid_index) = grid.translation_to_index(particle.translation) else {
+                    return;
+                };
+
+                // If any collisions occur, we know we are grounded.
+                grounded.0 = grid.cells[grid_index].0.iter().any(|other_entity| {
+                    let Ok((other_radius, other_transform)) = colliders.get(*other_entity) else {
+                        return false;
+                    };
+
+                    check_collision(radius.0, particle.translation, other_radius.0, other_transform.translation.xy())
+                });
+            });
     }
 }

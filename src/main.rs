@@ -38,11 +38,13 @@ mod tree;
 mod verlet;
 
 mod prelude {
-    pub use super::{squared, Action, GizmosLingering, Grower, QueryExtensions, WorldOrCommands};
+    pub use super::{
+        squared, Action, CursorPreviousWorldTranslation, CursorWorldTranslation, GizmosLingering,
+        Grower, PlantCell, PlantCellTemplate, QueryExtensions, WorldOrCommands,
+    };
     pub use crate::{
-        collision::prelude::*, editor::prelude::*, ground::prelude::*,
-        ok_or_error_and_return, particle, player::prelude::*,
-        saving::prelude::*, some_or_return, sun::prelude::*,
+        collision::prelude::*, editor::prelude::*, ground::prelude::*, ok_or_error_and_return,
+        particle, player::prelude::*, saving::prelude::*, some_or_return, sun::prelude::*,
         time::prelude::*, tree::prelude::*, verlet::prelude::*,
     };
     pub use bevy::{
@@ -59,6 +61,7 @@ mod prelude {
         egui::{self, color_picker, DragValue, Response, Ui},
         EguiContexts, EguiPlugin,
     };
+    pub use bevy_registration::prelude::*;
     pub use derive_more::{Deref, DerefMut};
     pub use inventory::{collect, submit};
     pub use leafwing_input_manager::prelude::*;
@@ -71,9 +74,9 @@ mod prelude {
         any::TypeId,
         fs::{self, File},
         path::Path,
+        sync::Arc,
         time::Duration,
     };
-    pub use bevy_registration::prelude::*;
 }
 
 use prelude::*;
@@ -108,6 +111,7 @@ fn main() {
             (
                 (AmbientFriction::update, Gravity::update, move_players),
                 Verlet::update,
+                (Grounded::update),
                 (Verlet::solve_collisions),
             )
                 .chain_ignore_deferred(),
@@ -115,7 +119,8 @@ fn main() {
         .add_systems(
             Update,
             (
-                (Editor::ui),
+                (PlantCell::update),
+                (Editor::ui, Editor::create),
                 (StartSave::prepare, LoadStart::prepare),
                 (
                     LineSelected::ui,
@@ -264,11 +269,8 @@ pub enum Action {
     Zoom,
     Debug,
 
-    AddPoint,
-    RemovePoint,
-    CreateOrSelectLineMode,
-    Select,
-    TranslatePoint,
+    EditorSelect,
+    EditorCreate,
 }
 
 impl Actionlike for Action {
@@ -289,16 +291,9 @@ impl Action {
             .with_axis(Self::Zoom, MouseScrollAxis::Y)
             .with(Self::Debug, KeyCode::KeyF)
             .with(
-                Self::AddPoint,
+                Self::EditorCreate,
                 ButtonlikeChord::from_single(MouseButton::Left).with(KeyCode::KeyQ),
             )
-            .with(
-                Self::RemovePoint,
-                ButtonlikeChord::from_single(MouseButton::Left).with(KeyCode::KeyE),
-            )
-            .with(Self::CreateOrSelectLineMode, KeyCode::KeyR)
-            .with(Self::Select, MouseButton::Left)
-            .with(Self::TranslatePoint, MouseButton::Right)
     }
 }
 
@@ -376,7 +371,8 @@ impl TerrainPoint {
         translation: Res<CursorWorldTranslation>,
         mut commands: Commands,
     ) {
-        if actions.just_pressed(&Action::AddPoint) {
+        if false {
+            //if actions.just_pressed(&Action::AddPoint) {
             commands.spawn((
                 SaveConfig {
                     path: "./map".into(),
@@ -394,7 +390,8 @@ impl TerrainPoint {
         cursor_translation: Res<CursorWorldTranslation>,
         mut commands: Commands,
     ) {
-        if actions.pressed(&Action::RemovePoint) {
+        if false {
+            //if actions.pressed(&Action::RemovePoint) {
             points.iter().for_each(|(entity, transform)| {
                 if check_collision(
                     10.,
@@ -419,7 +416,8 @@ impl TerrainPoint {
         cursor_translation: Res<CursorWorldTranslation>,
         cursor_previous_translation: Res<CursorPreviousWorldTranslation>,
     ) {
-        if actions.pressed(&Action::TranslatePoint) {
+        if false {
+            //if actions.pressed(&Action::TranslatePoint) {
             points.iter_mut().for_each(|(entity, mut transform)| {
                 if check_collision(
                     10.,
@@ -453,8 +451,10 @@ impl TerrainPoint {
         mut line_selected: ResMut<LineSelected>,
         mut commands: Commands,
     ) {
-        if actions.pressed(&Action::CreateOrSelectLineMode) {
-            if !actions.just_pressed(&Action::Select) {
+        if false {
+            //if actions.pressed(&Action::CreateOrSelectLineMode) {
+            if false {
+                //if !actions.just_pressed(&Action::Select) {
                 return;
             }
 
@@ -1228,4 +1228,105 @@ macro_rules! ok_or_error_and_return {
             }
         }
     };
+}
+
+#[derive(Clone)]
+pub struct PlantCellTemplate {
+    pub grow_chance_every: Duration,
+
+    pub grow_chance: f32,
+
+    pub grow_chance_change_after_success: f32,
+    pub grow_chance_change_after_failure: f32,
+
+    pub grow_chance_clamp: Range<f32>,
+
+    pub grow_into: Vec<usize>,
+}
+
+#[derive(Component)]
+pub struct PlantCell {
+    pub time_passed: Duration,
+    // Grow into grow_into[grow_into_pointer] and then add 1 to grow_into_pointer, and mod it by the length.
+    pub grow_into_pointer: usize,
+
+    base: PlantCellTemplate,
+
+    // Templates are per plant, and read only. Once the plant entirely dies out, this will be deallocated.
+    templates: Arc<Vec<PlantCellTemplate>>,
+}
+
+impl PlantCell {
+    /// Constructs a new PlantCell from a vec of templates and fills in its own fields by indexing the vec with index.
+    pub fn new(templates: Arc<Vec<PlantCellTemplate>>, index: usize) -> Self {
+        let mut rng = thread_rng();
+
+        Self {
+            time_passed: rng.gen_range(Duration::ZERO..(templates[index].grow_chance_every)),
+            grow_into_pointer: 0,
+
+            base: templates[index].clone(),
+            templates,
+        }
+    }
+
+    /// Updates each cell, and grows new ones occasionally.
+    fn update(
+        mut cells: Query<(&mut PlantCell, &Transform)>,
+        time: Res<Time>,
+        commands: ParallelCommands,
+        asset_server: Res<AssetServer>,
+    ) {
+        cells.par_iter_mut().for_each(|(cell, transform)| {
+            let cell = cell.into_inner();
+
+            //TODO: Do I want deterministic growing? Perhaps eventually.
+            // For now this will work well enough.
+            let mut rng = thread_rng();
+
+            cell.time_passed += time.delta();
+
+            while cell.time_passed >= cell.base.grow_chance_every {
+                cell.time_passed -= cell.base.grow_chance_every;
+
+                // If it over 1 or under 0 then we can obviously know whether it will grow or not.
+                let grow = if cell.base.grow_chance >= 1. {
+                    true
+                } else if cell.base.grow_chance <= 0. {
+                    false
+                } else {
+                    rng.gen_bool(cell.base.grow_chance as f64)
+                };
+
+                if grow {
+                    info!("Grow");
+                    cell.base.grow_chance += cell.base.grow_chance_change_after_success;
+
+                    let new_cell = (
+                        Self::new(cell.templates.clone(), cell.grow_into_pointer),
+                        Transform::from_translation(transform.translation + Vec3::new(0., 30., 0.)),
+                        Sprite {
+                            image: asset_server.load("nodule.png"),
+                            ..default()
+                        },
+                    );
+
+                    commands.command_scope(|mut commands| {
+                        commands.spawn(new_cell);
+                    });
+
+                    // Wrap around, so the pointer is always valid.
+                    cell.grow_into_pointer += 1 % cell.templates.len();
+                } else {
+                    info!("No");
+                    cell.base.grow_chance += cell.base.grow_chance_change_after_failure;
+                }
+
+                cell.base.grow_chance = cell.base.grow_chance.clamp(
+                    cell.base.grow_chance_clamp.start,
+                    cell.base.grow_chance_clamp.end,
+                );
+            }
+        });
+    }
 }
