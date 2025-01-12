@@ -1,11 +1,14 @@
+use bevy::ecs::system::SystemState;
+
 use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{AmbientFriction, Gravity, Verlet, Grounded};
+    pub use super::{AmbientFriction, Gravity, Grounded, Verlet};
 }
 
 /// The fixed time between every update to the particle physics.
 pub const TIME_DELTA_SECONDS: f64 = 1. / 30.;
+pub const COLLISION_SUBSTEPS: u8 = 3;
 //const TIME_DELTA: Duration = Duration::from_secs_f64(0.1);
 
 //MARK: Verlet
@@ -62,19 +65,41 @@ impl Verlet {
         });
     }
 
+    /// Stop particles from intersecting each other.
     pub fn solve_collisions(
-        grid: Res<ColliderGrid>,
-        particles: Query<(Entity, &Radius, &Transform, &Self)>,
-        colliders: Query<(&Radius, &Transform, Option<&Self>)>,
-        commands: ParallelCommands,
+        world: &mut World,
+        system: &mut SystemState<(
+            Query<(Entity, &Radius, &Self)>,
+            Query<(&Radius, &Transform, Option<&Self>)>,
+            Res<ColliderGrid>,
+        )>,
+
+        // (entity, translation, velocity)
+        // Every entity should appear at most once in here.
+        // TODO: We could store a component on each particle, that we mutate. Then we iter over all components and set verlet.translation to equal them.
+        // I would prefer to avoid the extra memory if possible though.
+        mut collision_resolutions: Local<Parallel<Vec<(Entity, Vec2, Vec2)>>>,
     ) {
-        particles
-            .par_iter()
-            .for_each(|(entity, radius, transform, particle)| {
+        const COLLISION_TIME_DELTA_SECONDS: f32 =
+            TIME_DELTA_SECONDS as f32 / COLLISION_SUBSTEPS as f32;
+
+        for _ in 0..COLLISION_SUBSTEPS {
+            let (particles, colliders, grid) = system.get(world);
+
+            particles.par_iter().for_each(|(entity, radius, particle)| {
                 // This is manually constructed, instead of using the ones already implemented on ColliderGrid.
                 // This is for extra optimisation, and ease of tinkering.
 
-                let Some(grid_index) = grid.translation_to_index(particle.translation) else {
+                // We can keep this as the source of truth, and update it with every collision.
+                // This allows future collisions to be more accurate.
+                let mut translation = particle.translation;
+                let mut velocity = particle.velocity;
+                let radius = radius.0;
+
+                // Because translation can change, this is technically incorrect.
+                // We should instead work out grid index every time translation changes.
+                // That sounds slow, and complicated though, so we aren't going to do that.
+                let Some(grid_index) = grid.translation_to_index(translation) else {
                     return;
                 };
 
@@ -88,17 +113,32 @@ impl Verlet {
                     }
 
                     // Get the collider information from the entity.
-                    let Ok((other_radius, other_transform, other_particle)) =
-                        colliders.get(*other_entity)
-                    else {
-                        return;
+                    // other_translation is Verlet if the collider has it, and if not, then we use Transform.
+                    let (other_radius, other_translation, collision_delta_multiplier) = {
+                        let Ok((other_radius, other_transform, other_translation)) =
+                            colliders.get(*other_entity)
+                        else {
+                            return;
+                        };
+
+                        let (other_translation, collision_delta_multiplier) =
+                            if let Some(other_translation) = other_translation {
+                                (other_translation.translation, 0.5)
+                            } else {
+                                (other_transform.translation.xy(), 1.)
+                            };
+
+                        (
+                            other_radius.0,
+                            other_translation,
+                            collision_delta_multiplier,
+                        )
                     };
 
                     // This whole collision separation algorithm is taken and modified from https://www.youtube.com/watch?v=lS_qeBy3aQI at 4:09.
-                    let radius_sum = radius.0 + other_radius.0;
+                    let radius_sum = radius + other_radius;
 
-                    let collision_axis =
-                        transform.translation.xy() - other_transform.translation.xy();
+                    let collision_axis = translation - other_translation;
 
                     // Collision can be checked using distance_squared, this saves a square root call.
                     let distance_squared = collision_axis.length_squared();
@@ -112,29 +152,38 @@ impl Verlet {
                         let distance_delta = radius_sum - distance;
                         // The change in translation needed to move 1 collider out of the other.
                         // When we move both, we just move each by half of this, in opposite directions.
-                        let translation_delta = distance_delta * collision_axis;
+                        let translation_delta =
+                            distance_delta * collision_axis * collision_delta_multiplier;
+                        // Friction.
+                        let velocity_delta =
+                            velocity.abs() * velocity * 0.01 * COLLISION_TIME_DELTA_SECONDS as f32;
 
-                        if let Some(_other_particle) = other_particle {
-                            todo!();
-                        } else {
-                            // Surface friction.
-                            let velocity_delta = particle.velocity_delta_from_friction(0.01);
-
-                            commands.command_scope(move |mut commands| {
-                                let Some(mut particle) = commands.get_entity(entity) else {
-                                    return;
-                                };
-
-                                particle.entry::<Self>().and_modify(move |mut particle| {
-                                    particle.translation += translation_delta;
-                                    // Experimental surface friction experiment.
-                                    particle.velocity -= velocity_delta;
-                                });
-                            });
-                        }
+                        // By keeping translation up to date with deferred changes, we can massively improve collision resolution.
+                        translation += translation_delta;
+                        velocity -= velocity_delta;
                     }
                 });
+
+                collision_resolutions
+                    .borrow_local_mut()
+                    .push((entity, translation, velocity));
             });
+
+            collision_resolutions
+                .iter_mut()
+                .for_each(|collision_resolutions| {
+                    collision_resolutions
+                        .drain(..)
+                        .for_each(|(entity, translation, velocity)| {
+                            let mut particle = world.entity_mut(entity);
+                            let Some(mut particle) = particle.get_mut::<Verlet>() else {
+                                return;
+                            };
+                            particle.translation = translation;
+                            particle.velocity = velocity;
+                        });
+                });
+        }
     }
 
     /// Sets Transform's translation every frame a position roughly around the particle's translation.
@@ -173,10 +222,13 @@ impl AmbientFriction {
 pub struct Gravity;
 
 impl Gravity {
+    // The force of gravity.
+    pub const ACCELERATION: Vec2 = Vec2::new(0., -98.);
+
     /// Accelerates every particle downwards.
     pub fn update(mut particles: Query<&mut Verlet, With<Self>>) {
         particles.par_iter_mut().for_each(|mut particle| {
-            particle.accelerate(Vec2::new(0., -98.));
+            particle.accelerate(Self::ACCELERATION);
         });
     }
 }
@@ -205,7 +257,12 @@ impl Grounded {
                         return false;
                     };
 
-                    check_collision(radius.0, particle.translation, other_radius.0, other_transform.translation.xy())
+                    check_collision(
+                        radius.0,
+                        particle.translation,
+                        other_radius.0,
+                        other_transform.translation.xy(),
+                    )
                 });
             });
     }

@@ -36,16 +36,17 @@ mod sun;
 mod time;
 mod tree;
 mod verlet;
+mod input;
 
 mod prelude {
     pub use super::{
-        squared, Action, CursorPreviousWorldTranslation, CursorWorldTranslation, GizmosLingering,
+        squared, CursorPreviousWorldTranslation, CursorWorldTranslation, GizmosLingering,
         Grower, PlantCell, PlantCellTemplate, QueryExtensions, WorldOrCommands,
     };
     pub use crate::{
         collision::prelude::*, editor::prelude::*, ground::prelude::*, ok_or_error_and_return,
         particle, player::prelude::*, saving::prelude::*, some_or_return, sun::prelude::*,
-        time::prelude::*, tree::prelude::*, verlet::prelude::*,
+        time::prelude::*, tree::prelude::*, verlet::prelude::*, input::prelude::*,
     };
     pub use bevy::{
         asset::LoadedFolder,
@@ -97,8 +98,8 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            //FrameTimeDiagnosticsPlugin,
-            //LogDiagnosticsPlugin::default(),
+            FrameTimeDiagnosticsPlugin,
+            LogDiagnosticsPlugin::default(),
             InputManagerPlugin::<Action>::default(),
             RunEveryPlugin,
             EguiPlugin,
@@ -107,14 +108,14 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems_that_run_every(
             Duration::from_secs_f64(verlet::TIME_DELTA_SECONDS),
-            // TODO: How do we want to deal with deffered changes? Surely we would want it to apply deffered at the end of every loop, but how do we do that?
+            // TODO: How do we want to deal with deffered changes? Surely we would want it to apply deffered at the end of every loop. I think .chain() does this?
             (
                 (AmbientFriction::update, Gravity::update, move_players),
                 Verlet::update,
                 (Grounded::update),
                 (Verlet::solve_collisions),
             )
-                .chain_ignore_deferred(),
+                .chain(),
         )
         .add_systems(
             Update,
@@ -197,7 +198,7 @@ fn setup(
 
     info!("player {}", player_translation);
 
-    let player = commands
+    commands
         .spawn((
             Player,
             Transform::from_translation(Vec3::new(0., 0., 1.)),
@@ -210,37 +211,9 @@ fn setup(
             Verlet::from_translation(player_translation),
             AmbientFriction,
             Gravity,
-        ))
-        .id();
+        ));
 
     commands.spawn(Camera2d);
-
-    let mut target = player;
-    for i in 1..=50 {
-        target = commands
-            .spawn((
-                particle::DistanceConstraint {
-                    distance: 5.,
-                    target,
-                },
-                AbilityOrb {
-                    following: Some(player),
-                    distance: 60. * i as f32,
-                },
-                Sprite {
-                    image: asset_server.load("nodule.png"),
-                    color: Color::Srgba(Srgba::rgb(1.0, 1.0, 0.0)),
-                    custom_size: Some(Vec2::splat(15.)),
-                    ..default()
-                },
-                Transform::from_translation(Vec3::new(
-                    player_translation.x,
-                    player_translation.y + 90. + (60. * i as f32),
-                    1.,
-                )),
-            ))
-            .id();
-    }
 }
 
 pub trait Grower: Component + Sized {
@@ -262,45 +235,6 @@ pub trait Grower: Component + Sized {
         }
     }
 }
-
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Reflect)]
-pub enum Action {
-    Move,
-    Zoom,
-    Debug,
-
-    EditorSelect,
-    EditorCreate,
-}
-
-impl Actionlike for Action {
-    // Record what kind of inputs make sense for each action.
-    fn input_control_kind(&self) -> InputControlKind {
-        match self {
-            Self::Move => InputControlKind::DualAxis,
-            Self::Zoom => InputControlKind::Axis,
-            _ => InputControlKind::Button,
-        }
-    }
-}
-
-impl Action {
-    fn default_input_map() -> InputMap<Self> {
-        InputMap::default()
-            .with_dual_axis(Self::Move, VirtualDPad::wasd())
-            .with_axis(Self::Zoom, MouseScrollAxis::Y)
-            .with(Self::Debug, KeyCode::KeyF)
-            .with(
-                Self::EditorCreate,
-                ButtonlikeChord::from_single(MouseButton::Left).with(KeyCode::KeyQ),
-            )
-    }
-}
-
-app!(|app| {
-    app.init_resource::<ActionState<Action>>()
-        .insert_resource(Action::default_input_map());
-});
 
 fn debug_move_camera(
     time: Res<Time>,

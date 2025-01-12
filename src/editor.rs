@@ -11,8 +11,8 @@ pub struct Editor {
     category_open: usize,
     /// Used for copying and pasting.
     /// This also is set when you select an item from the right panel.
-    /// The TypeId is so we can only show the paste button when the TypeId is equal to the expected type.
-    pub copied: (fn(&mut Commands, &AssetServer, Vec2), TypeId),
+    /// The &str is so we can only show the paste button when the &str is equal to the expected value.
+    pub copied: (fn(&mut Commands, &AssetServer, Vec2), &'static str),
 
     pub selected_entities: Vec<Entity>,
 }
@@ -21,7 +21,7 @@ impl Default for Editor {
     fn default() -> Self {
         Self {
             category_open: 0,
-            copied: (|_, _, _| {}, TypeId::of::<()>()),
+            copied: (|_, _, _| {}, ""),
             selected_entities: vec![],
         }
     }
@@ -31,15 +31,10 @@ impl Editor {
     // I want a long list of buttons. When you click on one it selects it. From there you can click and it will spawn one wherever you click.
     pub fn ui(mut contexts: EguiContexts, mut editor: ResMut<Editor>) {
         egui::SidePanel::right("Editor").show(contexts.ctx_mut(), |ui| {
-            let categories: &[(
-                &str,
-                &[(&str, TypeId, fn(&mut Commands, &AssetServer, Vec2))],
-            )] = &[(
+            let categories: &[(&str, &[(&str, fn(&mut Commands, &AssetServer, Vec2))])] = &[(
                 "Plants",
-                &[(
-                    "Test Plant",
-                    TypeId::of::<PlantCell>(),
-                    |commands, asset_server, translation| {
+                &[
+                    ("Test Plant", |commands, asset_server, translation| {
                         commands.spawn((
                             Transform::from_translation(Vec3::new(
                                 translation.x,
@@ -66,8 +61,24 @@ impl Editor {
                                 ..default()
                             },
                         ));
-                    },
-                )],
+                    }),
+                    ("Seed?", |commands, asset_server, translation| {
+                        commands.spawn((
+                            Sprite {
+                                image: asset_server.load("nodule.png"),
+                                ..default()
+                            },
+                            Transform::from_translation(Vec3::new(
+                                translation.x,
+                                translation.y,
+                                1.,
+                            )),
+                            Verlet::from_translation(translation),
+                            Radius(15.),
+                            Gravity,
+                        ));
+                    }),
+                ],
             )];
 
             categories.iter().for_each(|(category, _)| {
@@ -79,10 +90,14 @@ impl Editor {
 
             let (_, entries) = categories[editor.category_open];
 
-            entries.iter().for_each(|(name, type_id, spawner)| {
+            entries.iter().for_each(|(name, spawner)| {
                 ui.add_space(10.);
-                if ui.button(*name).clicked() {
-                    editor.copied = (*spawner, *type_id);
+                let button = ui.button(*name);
+                if button.clicked() {
+                    editor.copied = (*spawner, *name);
+                }
+                if *name == editor.copied.1 {
+                    button.highlight();
                 }
             });
         });
