@@ -96,12 +96,30 @@ use saving::AppSaveAndLoad;
 
 schedule! {
     Update(
+        Early,
+        [run_every(Duration::from_secs_f64(1. / 30.))]
         Physics(
             BeforeUpdate,
             Update,
-        )
+            CollisionResolution,
+            SyncPositions,
+        ),
     )
 }
+
+/*
+.add_systems_that_run_every(
+            Duration::from_secs_f64(verlet::TIME_DELTA_SECONDS),
+            // TODO: How do we want to deal with deffered changes? Surely we would want it to apply deffered at the end of every loop. I think .chain() does this?
+            (
+                (AmbientFriction::update, Gravity::update, move_players),
+                Verlet::update,
+                (Grounded::update),
+                (Verlet::solve_collisions),
+                (Verlet::sync_position),
+            )
+                .chain(),
+        ) */
 
 fn main() {
     App::new()
@@ -115,18 +133,6 @@ fn main() {
             RegistrationPlugin,
         ))
         .add_systems(Startup, setup)
-        .add_systems_that_run_every(
-            Duration::from_secs_f64(verlet::TIME_DELTA_SECONDS),
-            // TODO: How do we want to deal with deffered changes? Surely we would want it to apply deffered at the end of every loop. I think .chain() does this?
-            (
-                (AmbientFriction::update, Gravity::update, move_players),
-                Verlet::update,
-                (Grounded::update),
-                (Verlet::solve_collisions),
-                (Verlet::sync_position),
-            )
-                .chain(),
-        )
         .add_systems(
             Update,
             (
@@ -223,6 +229,7 @@ fn setup(
         Verlet::from_translation(player_translation),
         AmbientFriction,
         Gravity,
+        Extrapolate,
     ));
 
     commands.spawn(Camera2d);

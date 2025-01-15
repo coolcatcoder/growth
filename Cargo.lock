@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_registration"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "bevy",
  "bevy_registration_procedural_macros",
@@ -945,7 +945,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_registration_procedural_macros"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "foldhash",
  "proc-macro2",

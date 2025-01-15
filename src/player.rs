@@ -10,6 +10,7 @@ pub mod prelude {
 pub struct Player;
 
 /// Move all players based on their inputs.
+#[system(Update::Physics::BeforeUpdate)]
 pub fn move_players(
     actions: Res<ActionState<Action>>,
     mut players: Query<&mut Verlet, With<Player>>,
