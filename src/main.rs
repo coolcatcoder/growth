@@ -28,6 +28,7 @@ mod collision;
 mod editor;
 mod events;
 mod ground;
+mod input;
 pub mod particle;
 mod plant;
 mod player;
@@ -36,17 +37,16 @@ mod sun;
 mod time;
 mod tree;
 mod verlet;
-mod input;
 
 mod prelude {
     pub use super::{
-        squared, CursorPreviousWorldTranslation, CursorWorldTranslation, GizmosLingering,
-        Grower, PlantCell, PlantCellTemplate, QueryExtensions, WorldOrCommands,
+        squared, CursorPreviousWorldTranslation, CursorWorldTranslation, GizmosLingering, Grower,
+        PlantCell, PlantCellTemplate, QueryExtensions, WorldOrCommands,
     };
     pub use crate::{
-        collision::prelude::*, editor::prelude::*, ground::prelude::*, ok_or_error_and_return,
-        particle, player::prelude::*, saving::prelude::*, some_or_return, sun::prelude::*,
-        time::prelude::*, tree::prelude::*, verlet::prelude::*, input::prelude::*,
+        collision::prelude::*, editor::prelude::*, ground::prelude::*, input::prelude::*,
+        ok_or_error_and_return, particle, player::prelude::*, saving::prelude::*, some_or_return,
+        sun::prelude::*, time::prelude::*, tree::prelude::*, verlet::prelude::*,
     };
     pub use bevy::{
         asset::LoadedFolder,
@@ -94,6 +94,15 @@ use saving::AppSaveAndLoad;
 // Before you get a power upgrade, you are forced to deal with a battery which lasts only a few seconds. Your screen quickly getting darker and darker.
 // You recharge using the sun. Too much hurts.
 
+schedule! {
+    Update(
+        Physics(
+            BeforeUpdate,
+            Update,
+        )
+    )
+}
+
 fn main() {
     App::new()
         .add_plugins((
@@ -114,6 +123,7 @@ fn main() {
                 Verlet::update,
                 (Grounded::update),
                 (Verlet::solve_collisions),
+                (Verlet::sync_position),
             )
                 .chain(),
         )
@@ -165,7 +175,10 @@ fn main() {
         )
         .add_systems(
             PostUpdate,
-            (camera_follow, Verlet::sync_position.before(camera_follow))
+            (
+                camera_follow,
+                //Verlet::sync_position.before(camera_follow)
+            )
                 .before(TransformSystem::TransformPropagate),
         )
         .add_systems_that_run_every(Duration::from_secs_f64(1. / 5.), particle::Verlet::collide)
@@ -198,20 +211,19 @@ fn setup(
 
     info!("player {}", player_translation);
 
-    commands
-        .spawn((
-            Player,
-            Transform::from_translation(Vec3::new(0., 0., 1.)),
-            Sprite {
-                image: asset_server.load("nodule.png"),
-                color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
-                ..default()
-            },
-            Radius { 0: 15. },
-            Verlet::from_translation(player_translation),
-            AmbientFriction,
-            Gravity,
-        ));
+    commands.spawn((
+        Player,
+        Transform::from_translation(Vec3::new(0., 0., 1.)),
+        Sprite {
+            image: asset_server.load("nodule.png"),
+            color: Color::Srgba(Srgba::rgb(1.0, 0.0, 0.0)),
+            ..default()
+        },
+        Radius { 0: 15. },
+        Verlet::from_translation(player_translation),
+        AmbientFriction,
+        Gravity,
+    ));
 
     commands.spawn(Camera2d);
 }

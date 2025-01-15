@@ -186,16 +186,12 @@ impl Verlet {
         }
     }
 
-    /// Sets Transform's translation every frame a position roughly around the particle's translation.
-    /// It may use interpolation/extrapolation to keep everything looking visually pleasant.
+    /// Sets Transform's translation to the particle's translation.
+    /// The transform is still not a source of truth, as during the non-fixed update it may use interpolation/extrapolation to keep everything looking pleasant.
     pub fn sync_position(mut particles: Query<(&Self, &mut Transform)>) {
         particles
             .par_iter_mut()
             .for_each(|(particle, mut transform)| {
-                //TODO: Idea. Sync with transform exactly every time the physics loop runs.
-                // Then have an every-frame system that then performs the extrapolation.
-
-                // Temp. Replace with better interpolation/extrapolation.
                 transform.translation.x = particle.translation.x;
                 transform.translation.y = particle.translation.y;
             });
