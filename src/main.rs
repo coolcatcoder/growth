@@ -101,6 +101,7 @@ schedule! {
         Physics(
             BeforeUpdate,
             Update,
+            Chain,
             CollisionResolution,
             SyncPositions,
         ),
@@ -159,7 +160,7 @@ fn main() {
                 particle::Verlet::system,
                 display_lingering_gizmos,
                 //debug_move_camera,
-                //player::debug_collisions,
+                player::debug_collisions,
                 plant::Boulder::update_system,
                 //Ground::grower,
                 Tree::grower,

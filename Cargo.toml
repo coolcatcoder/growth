@@ -43,11 +43,12 @@ rayon = "1.10"
 derive_more = { version = "1", features = ["deref", "deref_mut"] }
 bevy_common_assets = {version = "0.12", features = ["json"]}
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.134"
-bevy_egui = "0.31"
+serde_json = "1.0.135"
+bevy_egui = "0.32"
 arrayvec = "0.7.6"
 paste = "1.0"
 inventory = "0.3.16"
+atomic_float = "1.1.0"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
@@ -79,3 +80,8 @@ inherits = "release"
 opt-level = "s"
 # Strip all debugging information from the binary to slightly reduce file size.
 strip = "debuginfo"
+
+# Makes profiling work.
+[profile.profiling]
+inherits = "release"
+debug = true

@@ -18,8 +18,14 @@ pub mod prelude {
 
 pub const GRID_WIDTH: usize = 120;
 pub const GRID_HEIGHT: usize = 25;
-pub const GRID_CELL_SIZE: Vec2 = Vec2::new(500., 500.);
-pub const GRID_ORIGIN: Vec2 = Vec2::new(-30_000., -2000.);
+pub const GRID_CELL_SIZE: Vec2 = Vec2::new(100., 100.);
+pub const GRID_ORIGIN: Vec2 = Vec2::new(-1000., 0.);
+
+#[system(Update)]
+fn grid_bounds_debug(mut gizmos: Gizmos) {
+    let size = Vec2::new(GRID_WIDTH as f32 * GRID_CELL_SIZE.x, GRID_HEIGHT as f32 * GRID_CELL_SIZE.y);
+    gizmos.rect_2d(GRID_ORIGIN + size * 0.5, size, Color::srgb(1., 1., 0.));
+}
 
 #[derive(Resource)]
 pub struct ColliderGrid<const WIDTH: usize, const HEIGHT: usize>

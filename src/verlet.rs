@@ -255,7 +255,7 @@ fn extrapolate(
                     let Ok((other_radius, other_transform)) = colliders.get(*other_entity) else {
                         return false;
                     };
-    
+
                     check_collision(
                         radius,
                         particle.translation,
@@ -270,11 +270,66 @@ fn extrapolate(
 
             // If there is not a collision then we can update the transform.
             if !collision {
-                info!("Not.");
                 transform.translation.x += translation_delta.x;
                 transform.translation.y += translation_delta.y;
-            } else {
-                info!("Extrapolation collision!");
             }
         });
+}
+
+/// Chains 2 particles together.
+/// Taken from https://www.youtube.com/watch?v=lS_qeBy3aQI
+#[derive(Component)]
+pub struct Chain {
+    particle_1: Entity,
+    particle_2: Entity,
+    target_distance: f32,
+}
+
+#[system(Update::Physics::Chain)]
+fn chain(
+    chains: Query<&Chain>,
+    mut particles: ParamSet<(Query<&Verlet>, Query<&mut Verlet>)>,
+    mut translations: Local<Parallel<Vec<(Entity, Vec2, Entity, Vec2)>>>,
+) {
+    let particles_immutable = particles.p0();
+    chains.par_iter().for_each(|chain| {
+        let Ok([particle_1, particle_2]) =
+            particles_immutable.get_many([chain.particle_1, chain.particle_2])
+        else {
+            return;
+        };
+
+        let axis = particle_1.translation - particle_2.translation;
+        let distance = axis.length();
+        let axis_normalised = axis / distance;
+        let translation_delta = chain.target_distance - distance;
+
+        let translations_tuple = (
+            chain.particle_1,
+            particle_1.translation + 0.5 * translation_delta * axis_normalised,
+            chain.particle_2,
+            particle_2.translation - 0.5 * translation_delta * axis_normalised,
+        );
+
+        translations.borrow_local_mut().push(translations_tuple);
+    });
+
+    // Get the mutable query.
+    let mut particles = particles.p1();
+
+    // Apply all translations in a singlethreaded fashion.
+    translations.iter_mut().for_each(|translations| {
+        translations.drain(..).for_each(
+            |(particle_1, translation_1, particle_2, translation_2)| {
+                let Ok([mut particle_1, mut particle_2]) =
+                    particles.get_many_mut([particle_1, particle_2])
+                else {
+                    return;
+                };
+
+                particle_1.translation = translation_1;
+                particle_2.translation = translation_2;
+            },
+        );
+    });
 }

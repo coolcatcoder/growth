@@ -63,20 +63,25 @@ impl Editor {
                         ));
                     }),
                     ("Seed?", |commands, asset_server, translation| {
-                        commands.spawn((
-                            Sprite {
-                                image: asset_server.load("nodule.png"),
-                                ..default()
-                            },
-                            Transform::from_translation(Vec3::new(
-                                translation.x,
-                                translation.y,
-                                1.,
-                            )),
-                            Verlet::from_translation(translation),
-                            Radius(15.),
-                            Gravity,
-                        ));
+                        for x in -30..=30 {
+                            for y in -10..=10 {
+                                let translation = translation + Vec2::new(30. * x as f32, 30. * y as f32);
+                                commands.spawn((
+                                    Sprite {
+                                        image: asset_server.load("nodule.png"),
+                                        ..default()
+                                    },
+                                    Transform::from_translation(Vec3::new(
+                                        translation.x,
+                                        translation.y,
+                                        1.,
+                                    )),
+                                    Verlet::from_translation(translation),
+                                    Radius(15.),
+                                    Gravity,
+                                ));
+                            }
+                        }
                     }),
                 ],
             )];

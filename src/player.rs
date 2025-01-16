@@ -101,7 +101,9 @@ pub fn debug_collisions(
     collider_grid: Res<ColliderGrid>,
 ) {
     players.iter().for_each(|transform| {
+        info!("{} translation", transform.translation.xy().round());
         if let Some(index) = collider_grid.translation_to_index(transform.translation.xy()) {
+            info!("{} entities", collider_grid.cells[index].0.len());
             collider_grid.cells[index].0.iter().for_each(|entity| {
                 let (transform, collider) = colliders.get(*entity).unwrap();
 
@@ -109,4 +111,18 @@ pub fn debug_collisions(
             });
         }
     });
+}
+
+#[system(Update)]
+fn debug_zoom(
+    time: Res<Time>,
+    actions: Res<ActionState<Action>>,
+    mut camera: Query<&mut OrthographicProjection, With<Camera2d>>,
+) {
+    const ZOOM_SPEED: f32 = 10.;
+
+    let mut camera = camera.single_mut();
+
+    camera.scale +=
+        actions.axis_data(&Action::Zoom).unwrap().value * ZOOM_SPEED * time.delta_secs();
 }
