@@ -22,8 +22,15 @@ pub const GRID_CELL_SIZE: Vec2 = Vec2::new(100., 100.);
 pub const GRID_ORIGIN: Vec2 = Vec2::new(-1000., 0.);
 
 #[system(Update)]
-fn grid_bounds_debug(mut gizmos: Gizmos) {
-    let size = Vec2::new(GRID_WIDTH as f32 * GRID_CELL_SIZE.x, GRID_HEIGHT as f32 * GRID_CELL_SIZE.y);
+fn grid_bounds_debug(mut gizmos: Gizmos, mut menu: MenuReader) {
+    if !menu.is(Menu::InGame) {
+        return;
+    }
+
+    let size = Vec2::new(
+        GRID_WIDTH as f32 * GRID_CELL_SIZE.x,
+        GRID_HEIGHT as f32 * GRID_CELL_SIZE.y,
+    );
     gizmos.rect_2d(GRID_ORIGIN + size * 0.5, size, Color::srgb(1., 1., 0.));
 }
 
@@ -32,10 +39,12 @@ pub struct ColliderGrid<const WIDTH: usize, const HEIGHT: usize>
 where
     [(); WIDTH * HEIGHT]:,
 {
-    // Bottom left? I don't know!
+    // Bottom left.
     pub origin: Vec2,
-    //#[cfg(debug_assertions)]
-    //pub debug_directions: Box<[(Vec<u8>)]>,
+
+    // Experiments to try, should performance become unreasonable.
+    // Store x and check for x overlap before fetching the real translation.
+    // Store the whole translation.
     pub cells: Box<[(Vec<Entity>, Parallel<Vec<Entity>>); WIDTH * HEIGHT]>,
 }
 

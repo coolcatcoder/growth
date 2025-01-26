@@ -65,7 +65,8 @@ impl Editor {
                     ("Seed?", |commands, asset_server, translation| {
                         for x in -30..=30 {
                             for y in -10..=10 {
-                                let translation = translation + Vec2::new(30. * x as f32, 30. * y as f32);
+                                let translation =
+                                    translation + Vec2::new(30. * x as f32, 30. * y as f32);
                                 commands.spawn((
                                     Sprite {
                                         image: asset_server.load("nodule.png"),

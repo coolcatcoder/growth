@@ -6,6 +6,17 @@ pub mod prelude {
     pub use super::{AmbientFriction, Extrapolate, Gravity, Verlet};
 }
 
+#[derive(Component, SaveAndLoad)]
+pub struct PhysicsSettings {
+    enabled: bool,
+}
+
+impl Default for PhysicsSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 //MARK: Verlet
 /// Performs velocity verlet integration.
 /// I learned about this from https://www.algorithm-archive.org/contents/verlet_integration/verlet_integration.html

@@ -26,16 +26,21 @@ use bevy::{
 
 mod collision;
 mod editor;
+mod error_handling;
 mod events;
 mod ground;
 mod input;
+mod localisation;
+mod menus;
 pub mod particle;
 mod plant;
 mod player;
+mod profile;
 mod saving;
 mod sun;
 mod time;
 mod tree;
+mod ui;
 mod verlet;
 
 mod prelude {
@@ -44,12 +49,14 @@ mod prelude {
         PlantCell, PlantCellTemplate, QueryExtensions, WorldOrCommands,
     };
     pub use crate::{
-        collision::prelude::*, editor::prelude::*, ground::prelude::*, input::prelude::*,
-        ok_or_error_and_return, particle, player::prelude::*, saving::prelude::*, some_or_return,
-        sun::prelude::*, time::prelude::*, tree::prelude::*, verlet::prelude::*,
+        collision::prelude::*, editor::prelude::*, error_handling::prelude::*, ground::prelude::*,
+        input::prelude::*, localisation::prelude::*, menus::prelude::*, ok_or_error_and_return,
+        particle, player::prelude::*, saving::prelude::*, some_or_return, sun::prelude::*,
+        time::prelude::*, tree::prelude::*, ui::prelude::*, verlet::prelude::*,
     };
     pub use bevy::{
         asset::LoadedFolder,
+        color::palettes::basic::*,
         ecs::{
             query::{QueryData, WorldQuery},
             system::{EntityCommands, SystemParam},
@@ -59,14 +66,13 @@ mod prelude {
     };
     pub use bevy_common_assets::json::JsonAssetPlugin;
     pub use bevy_egui::{
-        egui::{self, color_picker, DragValue, Response, Ui},
+        egui::{self, color_picker, DragValue, Response},
         EguiContexts, EguiPlugin,
     };
     pub use bevy_registration::prelude::*;
+    pub use bevy_text_edit::TextEditable;
     pub use derive_more::{Deref, DerefMut};
-    pub use inventory::{collect, submit};
     pub use leafwing_input_manager::prelude::*;
-    pub use paste::paste;
     pub use procedural_macros::*;
     pub use rand::prelude::*;
     pub use rayon::prelude::*;
@@ -80,8 +86,8 @@ mod prelude {
     };
 }
 
+use bevy_text_edit::TextEditPluginNoState;
 use prelude::*;
-use saving::AppSaveAndLoad;
 
 // The world is dying. Save it. The sun will eventually hit the world. Hope they realise that sooner rather than later!
 // Energy is area, roughly 1 energy for 700 area (30 diameter circle). You can only store as much energy as your area will allow.
@@ -97,6 +103,8 @@ use saving::AppSaveAndLoad;
 schedule! {
     Update(
         Early,
+        UnloadMenus,
+        LoadMenus,
         [run_every(Duration::from_secs_f64(1. / 30.))]
         Physics(
             BeforeUpdate,
@@ -126,20 +134,19 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            FrameTimeDiagnosticsPlugin,
-            LogDiagnosticsPlugin::default(),
+            //FrameTimeDiagnosticsPlugin,
+            //LogDiagnosticsPlugin::default(),
             InputManagerPlugin::<Action>::default(),
             RunEveryPlugin,
             EguiPlugin,
             RegistrationPlugin,
+            TextEditPluginNoState,
         ))
-        .add_systems(Startup, setup)
+        //.add_systems(Startup, setup)
         .add_systems(
             Update,
             (
                 (PlantCell::update),
-                (Editor::ui, Editor::create),
-                (StartSave::prepare, LoadStart::prepare),
                 (
                     LineSelected::ui,
                     TerrainLine::on_load,
@@ -209,10 +216,10 @@ fn main() {
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut start_load: EventWriter<LoadStart>,
+    mut load: Load,
 ) {
     // Temporary as for now we care only for the world.
-    start_load.send(LoadStart("./map".into()));
+    load.path("./map");
 
     let player_translation = Vec2::new(0., 500.);
 
@@ -291,12 +298,17 @@ pub struct CursorPreviousWorldTranslation(pub Vec2);
 pub fn update_cursor_translation(
     mut cursor_position: ResMut<CursorWorldTranslation>,
     mut previous_cursor_position: ResMut<CursorPreviousWorldTranslation>,
-    window: Query<&Window, With<PrimaryWindow>>,
-    camera: Query<(&Camera, &GlobalTransform)>,
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    camera: Option<Single<(&Camera, &GlobalTransform)>>,
 ) {
-    let (camera, camera_transform) = camera.get_single().unwrap();
+    let Some(camera) = camera else {
+        return;
+    };
+    let (camera, camera_transform) = (camera.0, camera.1);
 
-    let window = window.get_single().unwrap();
+    let Some(window) = window else {
+        return;
+    };
 
     if let Some(world_position) = window
         .cursor_position()
@@ -506,7 +518,7 @@ impl LineSelected {
         egui::SidePanel::left("Line Editor").show(contexts.ctx_mut(), |ui| {
             struct LineUi<'a> {
                 generate: bool,
-                ui: &'a mut Ui,
+                ui: &'a mut egui::Ui,
             }
 
             impl LineUi<'_> {
@@ -1283,4 +1295,8 @@ impl PlantCell {
             }
         });
     }
+}
+
+struct Profile {
+    identifier: String,
 }

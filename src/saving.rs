@@ -3,10 +3,7 @@ use serde::de::DeserializeOwned;
 pub use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{
-        DeserialiseEntity, Load, LoadFinish, LoadStart, Save, SaveAndLoad, SaveConfig,
-        SerialiseEntity, SerialisedEntity, StartSave,
-    };
+    pub use super::{SaveConfig, Load, Save, LoadFinish};
 }
 
 /// Anything saved will be relative to this path.
@@ -15,57 +12,68 @@ const SAVE_PATH: &str = "./assets/saves/";
 /// Same as above, but relative to ./assets instead.
 const SAVE_PATH_RELATIVE_TO_ASSETS: &str = "./saves";
 
+#[derive(SystemParam)]
+pub struct Save<'w> {
+    writer: EventWriter<'w, SavePrepare>,
+}
+
+impl Save<'_> {
+    /// Saves the path relative to SAVE_PATH.
+    pub fn path(&mut self, path: impl ToString) {
+        self.writer.send(SavePrepare(path.to_string()));
+    }
+}
+
 /// Called just before everything should save.
 /// This will make sure that everything is cleared out before sending the Save event.
 /// The string is the path relative to SAVE_PATH for safety.
 #[init]
 #[derive(Event)]
-pub struct StartSave(pub String);
+struct SavePrepare(pub String);
 
-impl StartSave {
-    /// Clears EntityToIndex and then sends of the save event.
-    pub fn prepare(
-        mut start_save: EventReader<Self>,
-        mut save: EventWriter<Save>,
-        mut serialise_entity: ResMut<SerialiseEntity>,
-    ) {
-        start_save.read().for_each(|start_save| {
-            serialise_entity.0.clear();
-            serialise_entity.1 = 0;
+/// Clears EntityToIndex and then sends the save event.
+#[system(Update)]
+fn save_prepare(
+    mut save_prepare: EventReader<SavePrepare>,
+    mut save_components: EventWriter<SaveComponents>,
+    mut serialise_entity: ResMut<SerialiseEntity>,
+) {
+    save_prepare.read().for_each(|save_prepare| {
+        serialise_entity.0.clear();
+        serialise_entity.1 = 0;
 
-            //TODO: Backup everything first.
+        //TODO: Backup everything first.
 
-            let path = Path::new(SAVE_PATH).join(&start_save.0);
+        let path = Path::new(SAVE_PATH).join(&save_prepare.0);
 
-            let exists = ok_or_error_and_return!(
-                fs::exists(&path),
-                "Tried to check if a folder existed and got this error:"
-            );
+        let exists = ok_or_error_and_return!(
+            fs::exists(&path),
+            "Tried to check if a folder existed and got this error:"
+        );
 
-            if exists {
-                ok_or_error_and_return!(
-                    fs::remove_dir_all(&path),
-                    "Tried to remove a folder and got this error:"
-                );
-            }
-
+        if exists {
             ok_or_error_and_return!(
-                fs::create_dir(&path),
-                "Tried to create a folder and got this error:"
+                fs::remove_dir_all(&path),
+                "Tried to remove a folder and got this error:"
             );
+        }
 
-            save.send(Save(start_save.0.clone()));
-        });
-    }
+        ok_or_error_and_return!(
+            fs::create_dir(&path),
+            "Tried to create a folder and got this error:"
+        );
+
+        save_components.send(SaveComponents(save_prepare.0.clone()));
+    });
 }
 
-/// An event that is called whenever everything should save.
+/// An event that is called whenever all components on entities with a matching saveconfig's path should save.
 #[init]
 #[derive(Event)]
-pub struct Save(pub String);
+pub struct SaveComponents(pub String);
 
-impl Save {
-    pub fn to_serialised_entity<T: Serialize>(
+impl SaveComponents {
+    fn to_serialised_entity<T: Serialize>(
         value: &T,
         serialised_entity: SerialisedEntity,
         path: impl AsRef<Path>,
@@ -110,41 +118,51 @@ impl Save {
     }
 }
 
-/// Indicates to start loading from that path relative to SAVE_PATH.
-#[init]
-#[derive(Event)]
-pub struct LoadStart(pub String);
+#[derive(SystemParam)]
+pub struct Load<'w> {
+    writer: EventWriter<'w, LoadPrepare>,
+}
 
-impl LoadStart {
-    pub fn prepare(
-        mut start_load: EventReader<LoadStart>,
-        mut load: EventWriter<Load>,
-        mut deserialise_entity: ResMut<DeserialiseEntity>,
-        loaded_entities: Query<(Entity, &SaveConfig)>,
-        mut commands: Commands,
-    ) {
-        start_load.read().for_each(|start_load| {
-            // Deload any entities in the path we want to load.
-            loaded_entities.iter().for_each(|(entity, save_config)| {
-                if save_config.path == start_load.0 {
-                    commands.entity(entity).despawn();
-                }
-            });
-
-            // Clear this, to assure us that no nonsense shall occur. There is more than 1 save path, so this is required.
-            deserialise_entity.0.clear();
-
-            load.send(Load(start_load.0.clone()));
-        });
+impl Load<'_> {
+    /// Loads the path relative to SAVE_PATH.
+    pub fn path(&mut self, path: impl ToString) {
+        self.writer.send(LoadPrepare(path.to_string()));
     }
 }
 
-/// Tells everything to load.
+/// Indicates to start loading from that path relative to SAVE_PATH.
 #[init]
 #[derive(Event)]
-pub struct Load(pub String);
+struct LoadPrepare(pub String);
 
-/// Once we have finished loading an entity, this is sent out.
+#[system(Update)]
+fn prepare(
+    mut load_prepare: EventReader<LoadPrepare>,
+    mut load_components: EventWriter<LoadComponents>,
+    mut deserialise_entity: ResMut<DeserialiseEntity>,
+    loaded_entities: Query<(Entity, &SaveConfig)>,
+    mut commands: Commands,
+) {
+    load_prepare.read().for_each(|load_prepare| {
+        // Deload any entities in the path we want to load.
+        loaded_entities.iter().for_each(|(entity, save_config)| {
+            if save_config.path == load_prepare.0 {
+                commands.entity(entity).despawn();
+            }
+        });
+
+        // Clear this, to assure us that no nonsense shall occur. There is more than 1 save path, so this is required.
+        deserialise_entity.0.clear();
+
+        load_components.send(LoadComponents(load_prepare.0.clone()));
+    });
+}
+
+/// Loads components from entities in the path that is the stored string.
+#[init]
+#[derive(Event)]
+pub struct LoadComponents(pub String);
+
 #[init]
 #[derive(Event)]
 pub struct LoadFinish(pub Entity);
@@ -199,11 +217,12 @@ impl DeserialiseEntity {
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct SerialisedEntity(pub u32);
 
-/// New idea. Save config.
 /// We still have decentralised saving, but for per entity information, it can be gotten from here.
 /// This may include:
 /// - path to save at
 /// - TODO: Any more?
+// TODO: Don't derive SaveAndLoad, instead manually implement it.
+// The manual implementation shouldn't create any files. It knows that any entity loaded will have the component.
 #[derive(Component, SaveAndLoad)]
 pub struct SaveConfig {
     pub path: String,
@@ -232,16 +251,16 @@ pub trait SaveAndLoad: Sized + Component {
 
     fn save(
         values: Query<(Entity, &SaveConfig, &Self)>,
-        mut save: EventReader<Save>,
+        mut save_components: EventReader<SaveComponents>,
         mut serialise_entity: ResMut<SerialiseEntity>,
     ) {
-        save.read().for_each(|save| {
+        save_components.read().for_each(|save_components| {
             values.iter().for_each(|(entity, save_config, value)| {
                 // find the save configs whose paths match the path you want to save
                 // get or create entity folder at the path
                 // create component file in it
 
-                if save_config.path != save.0 {
+                if save_config.path != save_components.0 {
                     return;
                 }
 
@@ -250,7 +269,7 @@ pub trait SaveAndLoad: Sized + Component {
                 let serialised = value.serialise(&mut serialise_entity);
 
                 // Each entity should have only 1 of each component, so the file is unique.
-                Save::to_serialised_entity(
+                SaveComponents::to_serialised_entity(
                     &serialised,
                     entity,
                     &save_config.path,
@@ -264,7 +283,7 @@ pub trait SaveAndLoad: Sized + Component {
         mut commands: Commands,
         mut deserialise_entity: ResMut<DeserialiseEntity>,
 
-        mut load: EventReader<Load>,
+        mut load_components: EventReader<LoadComponents>,
         mut load_finish: EventWriter<LoadFinish>,
 
         asset_server: Res<AssetServer>,
@@ -275,12 +294,12 @@ pub trait SaveAndLoad: Sized + Component {
     ) {
         match &mut *loading_stage {
             LoadingStage::WaitingForEvent => {
-                load.read().for_each(|load| {
+                load_components.read().for_each(|load_components| {
                     // If multiple systems load the same folder, they will all be given the same handle.
                     // This therefore does not waste effort loading the folder multiple times.
                     *loading_stage = LoadingStage::GotFolderHandle(
                         asset_server
-                            .load_folder(Path::new(SAVE_PATH_RELATIVE_TO_ASSETS).join(&load.0)),
+                            .load_folder(Path::new(SAVE_PATH_RELATIVE_TO_ASSETS).join(&load_components.0)),
                     );
                 });
             }
@@ -344,7 +363,6 @@ pub trait SaveAndLoad: Sized + Component {
 
                         let entity = deserialise_entity.convert(serialised_entity, &mut commands);
                         commands.entity(entity).insert(deserialised);
-
                         load_finish.send(LoadFinish(entity));
 
                         // Iterating backwards, so this is safe.

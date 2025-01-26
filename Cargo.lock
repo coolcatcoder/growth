@@ -317,12 +317,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "atomic_float"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "628d228f918ac3b82fe590352cc719d30664a0c13ca3a60266fe02c7132d480a"
-
-[[package]]
 name = "atomicow"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1136,6 +1130,16 @@ dependencies = [
  "smallvec",
  "sys-locale",
  "unicode-bidi",
+]
+
+[[package]]
+name = "bevy_text_edit"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7558e5f2b6b2855b184da81a468a5c2dadb3b9e0e064a3ada505d5ce4ec96fa7"
+dependencies = [
+ "bevy",
+ "regex-lite",
 ]
 
 [[package]]
@@ -2388,16 +2392,14 @@ name = "growth"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
- "atomic_float",
  "bevy",
  "bevy_common_assets",
  "bevy_egui",
  "bevy_registration",
+ "bevy_text_edit",
  "derive_more 1.0.0",
- "inventory",
  "leafwing-input-manager",
  "log",
- "paste",
  "procedural_macros",
  "rand",
  "rayon",
@@ -3793,6 +3795,12 @@ dependencies = [
  "memchr",
  "regex-syntax 0.8.5",
 ]
+
+[[package]]
+name = "regex-lite"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53a49587ad06b26609c52e423de037e7f57f20d53535d66e08c695f347df952a"
 
 [[package]]
 name = "regex-syntax"

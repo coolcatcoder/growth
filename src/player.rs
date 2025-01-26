@@ -30,10 +30,10 @@ pub fn move_players(
 
 pub fn debug_action(
     actions: Res<ActionState<Action>>,
-    mut start_save_writer: EventWriter<StartSave>,
+    mut save: Save,
 ) {
     if actions.just_pressed(&Action::Debug) {
-        start_save_writer.send(StartSave("./map".into()));
+        save.path("./map");
         info!("Debug pressed.");
     }
 }
@@ -46,12 +46,15 @@ pub fn debug_action(
 //     });
 // }
 
+/// Makes the camera follow the player.
 pub fn camera_follow(
     time: Res<Time>,
-    players: Query<&Transform, With<Player>>,
+    player: Option<Single<&Transform, With<Player>>>,
     mut camera_transform: Query<&mut Transform, (With<Camera>, Without<Player>)>,
 ) {
-    let follow_transform = players.single();
+    let Some(follow_transform) = player else {
+        return;
+    };
 
     let mut camera_transform = camera_transform.single_mut();
 
@@ -113,15 +116,24 @@ pub fn debug_collisions(
     });
 }
 
+/// Allows zooming in and out.
+/// Useful for when you are trying to see how a change affects a big area.
 #[system(Update)]
 fn debug_zoom(
     time: Res<Time>,
     actions: Res<ActionState<Action>>,
-    mut camera: Query<&mut OrthographicProjection, With<Camera2d>>,
+    camera: Option<Single<&mut OrthographicProjection, With<Camera2d>>>,
+    mut menu: MenuReader,
 ) {
+    if !menu.is(Menu::InGame) {
+        return;
+    }
+
     const ZOOM_SPEED: f32 = 10.;
 
-    let mut camera = camera.single_mut();
+    let Some(mut camera) = camera else {
+        return;
+    };
 
     camera.scale +=
         actions.axis_data(&Action::Zoom).unwrap().value * ZOOM_SPEED * time.delta_secs();

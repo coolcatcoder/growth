@@ -27,7 +27,7 @@ pub fn save_and_load(input: DeriveInput) -> syn::Result<TokenStream> {
         let field_type_as_string = field_type.to_token_stream().to_string();
 
         if field_type_as_string == "Entity" {
-            serialised_fields.push(quote! {#field_ident: SerialisedEntity,});
+            serialised_fields.push(quote! {#field_ident: crate::saving::SerialisedEntity,});
             entity_deserialisations.push(quote!{let #field_ident = deserialise_entity.convert(serialised.#field_ident, commands);});
             entity_serialisations
                 .push(quote! {let #field_ident = serialise_entity.convert(self.#field_ident);});
@@ -46,10 +46,10 @@ pub fn save_and_load(input: DeriveInput) -> syn::Result<TokenStream> {
             #(#serialised_fields)*
         }
 
-        impl SaveAndLoad for #struct_ident {
+        impl crate::saving::SaveAndLoad for #struct_ident {
             type Serialised = #serialised_struct_ident;
 
-            fn serialise(&self, serialise_entity: &mut SerialiseEntity) -> Self::Serialised {
+            fn serialise(&self, serialise_entity: &mut crate::saving::SerialiseEntity) -> Self::Serialised {
                 #(#entity_serialisations)*
 
                 Self::Serialised {
@@ -57,7 +57,7 @@ pub fn save_and_load(input: DeriveInput) -> syn::Result<TokenStream> {
                 }
             }
 
-            fn deserialise(serialised: &Self::Serialised, deserialise_entity: &mut DeserialiseEntity, commands: &mut Commands) -> Self {
+            fn deserialise(serialised: &Self::Serialised, deserialise_entity: &mut crate::saving::DeserialiseEntity, commands: &mut Commands) -> Self {
                 #(#entity_deserialisations)*
 
                 Self {
@@ -70,7 +70,7 @@ pub fn save_and_load(input: DeriveInput) -> syn::Result<TokenStream> {
         }
 
         app!(|app| {
-            app.save_and_load::<#struct_ident>();
+            crate::saving::AppSaveAndLoad::save_and_load::<#struct_ident>(app);
         });
     })
 }
