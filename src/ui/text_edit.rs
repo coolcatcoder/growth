@@ -105,8 +105,6 @@ fn keyboard_input(
     });
 
     if changed {
-        info!("Text edited.");
-
         let mut text_with_cursor_unpadded = editor.text.clone();
         if let Some((byte_index, _)) = text_with_cursor_unpadded
             .char_indices()

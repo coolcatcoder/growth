@@ -1,20 +1,24 @@
 use crate::prelude::*;
 
-/// The current user's profile.
-/// This should store, name, settings, language, etc.
+pub mod prelude {
+    pub use super::ActiveProfile;
+}
+
+/// A profile. This is a component for easier saving and loading.
 #[derive(Component, SaveAndLoad)]
-pub struct Profile {
+struct Profile {
     name: String,
 }
 
+/// Used to identify which profile is the active one.
 #[derive(Component)]
-struct Active;
+pub struct ActiveProfile;
 
-fn background() -> Color {
+fn ui_background() -> Color {
     Srgba::gray(0.1).into()
 }
 
-fn root() -> impl Bundle {
+fn ui_root() -> impl Bundle {
     Node {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
@@ -26,7 +30,7 @@ fn root() -> impl Bundle {
     }
 }
 
-fn label(ui: &mut UiLoaded) -> impl Bundle {
+fn ui_label(ui: &mut UiLoaded) -> impl Bundle {
     (
         TextColor(WHITE.into()),
         TextFont {
@@ -37,7 +41,7 @@ fn label(ui: &mut UiLoaded) -> impl Bundle {
     )
 }
 
-fn text_input(ui: &mut UiLoaded) -> impl Bundle {
+fn ui_text_input(ui: &mut UiLoaded) -> impl Bundle {
     (
         TextColor(WHITE.into()),
         TextFont {
@@ -49,7 +53,7 @@ fn text_input(ui: &mut UiLoaded) -> impl Bundle {
     )
 }
 
-fn button(ui: &mut UiLoaded) -> impl Bundle {
+fn ui_button(ui: &mut UiLoaded) -> impl Bundle {
     (
         TextColor(WHITE.into()),
         TextFont {
@@ -60,7 +64,7 @@ fn button(ui: &mut UiLoaded) -> impl Bundle {
     )
 }
 
-fn button_background_colour(interaction: &Interaction) -> Color {
+fn ui_button_background_colour(interaction: &Interaction) -> Color {
     Srgba::gray(match interaction {
         Interaction::None => 0.3,
         Interaction::Hovered => 0.2,
@@ -104,10 +108,10 @@ fn profile_name_load(mut ui: Ui, language: Option<Res<Language>>) {
                 Profile {
                     name: text_input.text.clone(),
                 },
-                Active,
                 SaveConfig {
                     path: String::from("./profiles"),
-                }
+                },
+                ActiveProfile,
             ));
             menu.send(Menu::Main);
             save.path("./profiles");
@@ -115,9 +119,9 @@ fn profile_name_load(mut ui: Ui, language: Option<Res<Language>>) {
     );
 }
 
-// TODO: Replace () with a profile handle or something like that.
+/// Either some profile's button, or the add new profile button.
 #[derive(Component)]
-struct ProfileButton(Option<()>);
+struct ProfileButton(Option<Entity>);
 
 #[system(Update::LoadMenus)]
 fn selection_menu_load(
@@ -148,6 +152,7 @@ fn selection_menu_load(
             ..default()
         },
         FromMenu,
+        Root,
     ));
 
     profiles.with_child((
@@ -167,10 +172,52 @@ fn selection_menu_load(
     info!("Loaded profile menu.");
 }
 
+#[system(Update::LoadMenus)]
+fn profile_buttons_load(
+    profiles: Query<&Profile>,
+    root: Option<Single<Entity, With<Root>>>,
+    mut loaded: EventReader<LoadFinish>,
+    mut menu: MenuReader,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    if !menu.is(Menu::SelectProfile) {
+        return;
+    }
+
+    // This will fail for 1 frame. I don't think that loses us any profiles? I hope.
+    // Keeping the error, to remind myself that this isn't a great solution.
+    some_err!(root);
+    let mut root = commands.entity(*root);
+
+    loaded.read().for_each(|loaded| {
+        assert_return!(loaded.is_component::<Profile>());
+
+        let profile = ok_err!(profiles.get(loaded.entity));
+
+        info!("Loaded profile.");
+
+        root.with_child((
+            Text::new(&profile.name),
+            TextColor(WHITE.into()),
+            TextFont {
+                font: asset_server.load("fonts/AzeretMono.ttf"),
+                font_size: 100.,
+                ..default()
+            },
+            Button,
+            FromMenu,
+            BackgroundColor(Srgba::gray(0.3).into()),
+            ProfileButton(Some(loaded.entity)),
+        ));
+    });
+}
+
 #[system(Update)]
 fn selection_menu(
     mut profile_buttons: Query<(&ProfileButton, &Interaction, &mut BackgroundColor)>,
     mut menu: EventWriter<Menu>,
+    mut commands: Commands,
 ) {
     profile_buttons
         .iter_mut()
@@ -183,8 +230,9 @@ fn selection_menu(
                     background_colour.0 = Srgba::gray(0.2).into();
                 }
                 Interaction::Pressed => {
-                    if let Some(_) = profile.0 {
-                        todo!();
+                    if let Some(entity) = profile.0 {
+                        commands.entity(entity).insert(ActiveProfile);
+                        menu.send(Menu::Main);
                     } else {
                         menu.send(Menu::LanguageSelection);
                     }

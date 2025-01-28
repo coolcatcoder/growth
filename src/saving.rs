@@ -3,7 +3,7 @@ use serde::de::DeserializeOwned;
 pub use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::{SaveConfig, Load, Save, LoadFinish};
+    pub use super::{Load, LoadFinish, Save, SaveConfig};
 }
 
 /// Anything saved will be relative to this path.
@@ -164,8 +164,17 @@ fn prepare(
 pub struct LoadComponents(pub String);
 
 #[init]
-#[derive(Event)]
-pub struct LoadFinish(pub Entity);
+#[derive(Event, Debug)]
+pub struct LoadFinish {
+    pub entity: Entity,
+    pub type_id: TypeId,
+}
+
+impl LoadFinish {
+    pub fn is_component<T: 'static + Component>(&self) -> bool {
+        TypeId::of::<T>() == self.type_id
+    }
+}
 
 /// Because Entity is opaque, we must convert it to something that will never change.
 #[init]
@@ -228,10 +237,8 @@ pub struct SaveConfig {
     pub path: String,
 }
 
-#[derive(Default)]
+/// What stage of loading are we.
 pub enum LoadingStage<T: Asset> {
-    #[default]
-    WaitingForEvent,
     GotFolderHandle(Handle<LoadedFolder>),
     GotComponentHandles(Vec<Handle<T>>),
 }
@@ -290,21 +297,28 @@ pub trait SaveAndLoad: Sized + Component {
         serialised: Res<Assets<Self::Serialised>>,
         folders: Res<Assets<LoadedFolder>>,
 
-        mut loading_stage: Local<LoadingStage<Self::Serialised>>,
+        // A vec, so that if multiple folders are loaded, we can cope with the throughput.
+        mut loading_stages: Local<Vec<LoadingStage<Self::Serialised>>>,
     ) {
-        match &mut *loading_stage {
-            LoadingStage::WaitingForEvent => {
-                load_components.read().for_each(|load_components| {
-                    // If multiple systems load the same folder, they will all be given the same handle.
-                    // This therefore does not waste effort loading the folder multiple times.
-                    *loading_stage = LoadingStage::GotFolderHandle(
-                        asset_server
-                            .load_folder(Path::new(SAVE_PATH_RELATIVE_TO_ASSETS).join(&load_components.0)),
-                    );
-                });
-            }
-            LoadingStage::GotFolderHandle(folder_handle) => {
-                let folder = some_or_return!(folders.get(folder_handle));
+        load_components.read().for_each(|load_components| {
+            // If multiple systems load the same folder, they will all be given the same handle.
+            // This therefore does not waste effort loading the folder multiple times.
+            loading_stages.push(LoadingStage::GotFolderHandle(asset_server.load_folder(
+                Path::new(SAVE_PATH_RELATIVE_TO_ASSETS).join(&load_components.0),
+            )));
+        });
+
+        let mut loading_stage_index = loading_stages.len();
+
+        while loading_stage_index != 0 {
+            loading_stage_index -= 1;
+
+            let loading_stage = &mut loading_stages[loading_stage_index];
+
+            if let LoadingStage::GotFolderHandle(folder_handle) = loading_stage {
+                let Some(folder) = folders.get(folder_handle) else {
+                    continue;
+                };
 
                 let mut component_handles = vec![];
 
@@ -316,12 +330,13 @@ pub trait SaveAndLoad: Sized + Component {
 
                 *loading_stage = LoadingStage::GotComponentHandles(component_handles);
             }
-            LoadingStage::GotComponentHandles(component_handles) => {
-                let mut index = component_handles.len();
 
-                while index != 0 {
-                    index -= 1;
-                    let component_handle = &component_handles[index];
+            if let LoadingStage::GotComponentHandles(component_handles) = loading_stage {
+                let mut handle_index = component_handles.len();
+
+                while handle_index != 0 {
+                    handle_index -= 1;
+                    let component_handle = &component_handles[handle_index];
 
                     let Some(path) = component_handle.path() else {
                         error!(
@@ -363,31 +378,34 @@ pub trait SaveAndLoad: Sized + Component {
 
                         let entity = deserialise_entity.convert(serialised_entity, &mut commands);
                         commands.entity(entity).insert(deserialised);
-                        load_finish.send(LoadFinish(entity));
+                        load_finish.send(LoadFinish {
+                            entity,
+                            type_id: TypeId::of::<Self>(),
+                        });
 
                         // Iterating backwards, so this is safe.
-                        component_handles.swap_remove(index);
+                        component_handles.swap_remove(handle_index);
                     }
                 }
 
                 if component_handles.len() == 0 {
-                    *loading_stage = LoadingStage::WaitingForEvent;
+                    // Iterating backwards, so this is safe.
+                    loading_stages.swap_remove(loading_stage_index);
                 }
+            } else {
+                unreachable!(
+                    "The previous if statement checks for the only other loading stage, so this \
+                     will not happen."
+                );
             }
         }
     }
 }
 
-pub trait AppSaveAndLoad {
-    fn save_and_load<T: SaveAndLoad>(&mut self) -> &mut Self;
-}
-
-impl AppSaveAndLoad for App {
-    fn save_and_load<T: SaveAndLoad>(&mut self) -> &mut Self {
-        self.add_plugins(JsonAssetPlugin::<T::Serialised>::new(&[T::FILE_EXTENSION]));
-        self.add_systems(Update, (T::save, T::load));
-        self
-    }
+pub fn setup_app_for_saving_and_loading<T: SaveAndLoad>(app: &mut App) -> &mut App {
+    app.add_plugins(JsonAssetPlugin::<T::Serialised>::new(&[T::FILE_EXTENSION]));
+    app.add_systems(crate::Update_SaveAndLoad, (T::save, T::load));
+    app
 }
 
 save_and_load_external! {

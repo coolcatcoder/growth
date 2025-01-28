@@ -28,13 +28,9 @@ pub fn move_players(
     });
 }
 
-pub fn debug_action(
-    actions: Res<ActionState<Action>>,
-    mut save: Save,
-) {
+pub fn debug_action(actions: Res<ActionState<Action>>) {
     if actions.just_pressed(&Action::Debug) {
-        save.path("./map");
-        info!("Debug pressed.");
+        error!("No debug action.")
     }
 }
 

@@ -70,7 +70,7 @@ pub fn save_and_load(input: DeriveInput) -> syn::Result<TokenStream> {
         }
 
         app!(|app| {
-            crate::saving::AppSaveAndLoad::save_and_load::<#struct_ident>(app);
+            crate::saving::setup_app_for_saving_and_loading::<#struct_ident>(app);
         });
     })
 }

@@ -21,7 +21,7 @@ pub const GRID_HEIGHT: usize = 25;
 pub const GRID_CELL_SIZE: Vec2 = Vec2::new(100., 100.);
 pub const GRID_ORIGIN: Vec2 = Vec2::new(-1000., 0.);
 
-#[system(Update)]
+//#[system(Update)]
 fn grid_bounds_debug(mut gizmos: Gizmos, mut menu: MenuReader) {
     if !menu.is(Menu::InGame) {
         return;

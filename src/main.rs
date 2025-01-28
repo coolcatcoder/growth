@@ -24,6 +24,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 
+mod game_menu;
 mod collision;
 mod editor;
 mod error_handling;
@@ -31,6 +32,7 @@ mod events;
 mod ground;
 mod input;
 mod localisation;
+mod main_menu;
 mod menus;
 pub mod particle;
 mod plant;
@@ -51,8 +53,8 @@ mod prelude {
     pub use crate::{
         collision::prelude::*, editor::prelude::*, error_handling::prelude::*, ground::prelude::*,
         input::prelude::*, localisation::prelude::*, menus::prelude::*, ok_or_error_and_return,
-        particle, player::prelude::*, saving::prelude::*, some_or_return, sun::prelude::*,
-        time::prelude::*, tree::prelude::*, ui::prelude::*, verlet::prelude::*,
+        particle, player::prelude::*, profile::prelude::*, saving::prelude::*, some_or_return,
+        sun::prelude::*, time::prelude::*, tree::prelude::*, ui::prelude::*, verlet::prelude::*,
     };
     pub use bevy::{
         asset::LoadedFolder,
@@ -113,6 +115,7 @@ schedule! {
             CollisionResolution,
             SyncPositions,
         ),
+        SaveAndLoad,
     )
 }
 
@@ -213,11 +216,7 @@ fn main() {
         .run();
 }
 
-fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut load: Load,
-) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut load: Load) {
     // Temporary as for now we care only for the world.
     load.path("./map");
 
@@ -882,8 +881,12 @@ impl TerrainLine {
     /// Generates the lines when they load.
     fn on_load(mut load_finish: EventReader<LoadFinish>, mut commands: Commands) {
         load_finish.read().for_each(|load_finish| {
+            if !load_finish.is_component::<Self>() {
+                return;
+            }
+
             commands
-                .entity(load_finish.0)
+                .entity(load_finish.entity)
                 .entry::<Self>()
                 .and_modify(|mut line| {
                     line.generate = true;
