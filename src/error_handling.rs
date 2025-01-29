@@ -13,6 +13,12 @@ macro_rules! some {
             };
         )+
     };
+    ($some:expr) => {
+        match $some {
+            Some(some) => some,
+            None => return,
+        }
+    };
 }
 
 /// It will be Some or else it will return () with an error.

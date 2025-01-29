@@ -24,11 +24,11 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-mod game_menu;
 mod collision;
 mod editor;
 mod error_handling;
 mod events;
+mod game_menu;
 mod ground;
 mod input;
 mod localisation;
